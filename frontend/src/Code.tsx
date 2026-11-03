@@ -20,6 +20,8 @@ export interface CodeProps {
   onDefinition?: (word: string) => void;
   onUsages?: (word: string) => void;
   onEscape?: () => void;
+  // focus moves keyboard focus to the editor; it changes on every request.
+  focus?: number;
 }
 
 // Code shows a file with CodeMirror: read-only for previews, editable in the viewer.
@@ -45,6 +47,10 @@ export function Code(props: CodeProps) {
   useEffect(() => {
     reveal(view.current!, props.line, props.column ?? 0);
   }, [props.line, props.column]);
+
+  useEffect(() => {
+    if (props.focus) view.current?.focus();
+  }, [props.focus]);
 
   return <div className="code" ref={host} />;
 }

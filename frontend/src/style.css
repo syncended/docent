@@ -301,8 +301,9 @@ mark {
   gap: 12px;
 }
 
+/* The path takes the room it needs; the hints get what is left. */
 .viewer-header .path {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-family: var(--mono);
   white-space: nowrap;
@@ -315,9 +316,14 @@ mark {
 }
 
 .hints {
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--text-dim);
   font-size: 11px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
 }
 
 .viewer {
@@ -649,12 +655,122 @@ mark {
 
 /* Search context next to the viewer */
 
-.context {
-  flex: 0 0 300px;
+/* Viewer bubbles: search context and project tree on the left, code on
+   the right. */
+.viewer-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.viewer-layout > .card {
   min-width: 0;
+}
+
+/* Keep the width in sync with the viewer-side layout in main.go. */
+.side {
+  flex: 0 0 240px;
+  /* Without this, long snippets and tree rows widen the column. */
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  gap: 8px;
+}
+
+.side > .card {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.context {
+  min-width: 0;
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.tree-root {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding-right: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tree-row svg {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.tree-row:hover {
+  background: var(--bg-raised);
+}
+
+.tree-row.selected {
+  background: #26262c;
+}
+
+.tree:focus .tree-row.selected {
+  background: var(--bg-selected);
+}
+
+.tree-row.open .tree-name {
+  color: var(--accent);
+}
+
+.tree-indent {
+  flex: none;
+  width: 13px;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crumb {
+  --wails-draggable: no-drag;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.crumb:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.crumb-sep {
+  margin: 0 3px;
+  color: var(--text-dim);
 }
 
 .context-query {

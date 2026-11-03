@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
-import { ArrowLeft, CaseSensitive, ChevronDown, ChevronRight, File, PanelLeftClose, PanelLeftOpen, FolderPlus, LoaderCircle, Regex, Search, Settings as SettingsIcon, Shapes, Sparkles, SquareFunction, TextSearch, type LucideIcon } from "lucide-react";
+import { ArrowLeft, CaseSensitive, ChevronDown, ChevronRight, File, FolderTree, PanelLeftClose, PanelLeftOpen, FolderPlus, LoaderCircle, Regex, Search, Settings as SettingsIcon, Shapes, Sparkles, SquareFunction, TextSearch, type LucideIcon } from "lucide-react";
 import * as api from "./api";
 import type { Hit, Progress, Status, Tab } from "./api";
 import { Code } from "./Code";
 import { Settings } from "./Settings";
+import { Tree } from "./Tree";
 import { AgentAnswer, applyEvent, newRun, stepLabel, type Run } from "./Agent";
 import { altLabel, cmd, hotkeyLabel, isMac, modLabel } from "./keys";
 
@@ -48,21 +49,36 @@ export function App() {
   const [discardArmed, setDiscardArmed] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [treeOpen, setTreeOpen] = useState(true);
+  const [treeReveal, setTreeReveal] = useState<{ path: string; n: number } | null>(null);
+  const [treeFocus, setTreeFocus] = useState(0);
+  const [codeFocus, setCodeFocus] = useState(0);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   // stepResult moves the viewer to the next or previous result; the global
   // key handler, registered once, calls the latest version.
   const stepResult = useRef<(dir: 1 | -1) => void>(() => {});
+  // toggleTree handles Cmd+1 in the viewer; called by the global key handler.
+  const toggleTree = useRef<() => void>(() => {});
+  // toSearch handles the hotkey in the viewer; called by the event handler.
+  const toSearch = useRef<() => void>(() => {});
+  // closeFile handles Cmd+W: back to search from the viewer, hide otherwise.
+  const closeFile = useRef<() => void>(() => {});
 
   const focusInput = () => setTimeout(() => (input.current?.focus(), input.current?.select()), 0);
 
   useEffect(() => {
     api.getStatus().then(setStatus);
     const offs = [
+      // Docent reopens as it was hidden: the viewer stays (DESIGN.md, Viewer).
       Events.On("palette:shown", () => {
-        if (!dirtyRef.current) setMode("palette");
+        if (modeRef.current === "viewer") return setCodeFocus((n) => n + 1);
+        setMode("palette");
         focusInput();
       }),
+      Events.On("palette:search", () => toSearch.current()),
       Events.On("settings:open", () => setMode("settings")),
       Events.On("agent:event", (e) => {
         const { run: id, event } = e.data as { run: number; event: api.AgentEvent };
@@ -75,7 +91,7 @@ export function App() {
         setIndexVersion((v) => v + 1);
       }),
     ];
-    // Cmd+W hides the window in any mode; unsaved edits stay in the viewer.
+    // Cmd+W closes the file in the viewer and hides the window elsewhere.
     // Cmd+, opens settings.
     const onKey = (e: KeyboardEvent) => {
       if (!cmd(e) || e.shiftKey) return;
@@ -86,9 +102,12 @@ export function App() {
         }
         return;
       }
-      if (e.key.toLowerCase() === "w") {
+      if (e.key === "1") {
         e.preventDefault();
-        api.hide();
+        toggleTree.current();
+      } else if (e.key.toLowerCase() === "w") {
+        e.preventDefault();
+        closeFile.current();
       } else if (e.key === ",") {
         e.preventDefault();
         if (!dirtyRef.current) setMode("settings");
@@ -137,8 +156,10 @@ export function App() {
 
   // The window is a Spotlight-like bar until there is something to show below it.
   const noRoots = status !== null && status.roots.length === 0;
+  const showContext = !!(sidebarOpen && (contextRows.length > 0 || (agentView && run)));
+  // The side column widens the viewer instead of narrowing the code.
   const layout: api.Layout =
-    mode === "viewer" ? "viewer" : mode === "settings" || list || shownRows.length > 0 || (tab === "agent" && run) ? "results" : "compact";
+    mode === "viewer" ? (treeOpen || showContext ? "viewer-side" : "viewer") : mode === "settings" || list || shownRows.length > 0 || (tab === "agent" && run) ? "results" : "compact";
   useEffect(() => {
     api.setLayout(layout);
   }, [layout]);
@@ -231,7 +252,7 @@ export function App() {
   const backToPalette = () => {
     if (dirty && !discardArmed) {
       setDiscardArmed(true);
-      setNotice(`Unsaved changes: ${modLabel}S to save, Esc again to discard`);
+      setNotice(`Unsaved changes: ${modLabel}S to save, press again to discard`);
       return;
     }
     setDirty(false);
@@ -240,6 +261,14 @@ export function App() {
     setMode("palette");
     focusInput();
   };
+
+  // The hotkey never discards edits, unlike a second Esc.
+  toSearch.current = () => {
+    if (dirty) return setNotice(`Unsaved changes: ${modLabel}S to save, Esc twice to discard`);
+    backToPalette();
+  };
+
+  closeFile.current = () => (mode === "viewer" ? backToPalette() : api.hide());
 
   const save = async (text: string) => {
     if (!viewer) return;
@@ -274,6 +303,36 @@ export function App() {
     const i = contextHits.findIndex((h) => sameHit(h, viewer.hit));
     const next = contextHits[(i + dir + contextHits.length) % contextHits.length];
     if (next) openHit(next);
+  };
+
+  // showTree shows or hides the project tree; a hidden tree forgets the
+  // folder it was asked to reveal, so it reopens at the open file.
+  const showTree = (open: boolean) => {
+    setTreeOpen(open);
+    if (!open) setTreeReveal(null);
+  };
+
+  toggleTree.current = () => {
+    if (mode !== "viewer") return;
+    if (treeOpen && document.activeElement?.closest(".tree")) {
+      showTree(false);
+      setCodeFocus((n) => n + 1);
+    } else {
+      setTreeOpen(true);
+      setTreeFocus((n) => n + 1);
+    }
+  };
+
+  const revealInTree = (path: string) => {
+    setTreeOpen(true);
+    setTreeReveal((r) => ({ path, n: (r?.n ?? 0) + 1 }));
+    setTreeFocus((n) => n + 1);
+  };
+
+  const openFromTree = (path: string) => {
+    if (!viewer) return;
+    if (dirty) return setNotice("Save or discard changes before leaving the file");
+    openLocation(viewer.hit.root, path, 1);
   };
 
   const openFromContext = (hit: Hit) => {
@@ -414,58 +473,93 @@ export function App() {
         </div>
       ) : (
         viewer && (
-          <div className="card">
-            <header className="drag viewer-header">
-              <button className="icon-button" title={sidebarOpen ? "Hide search" : "Show search"} onClick={() => setSidebarOpen(!sidebarOpen)}>
-                {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
-              </button>
-              <span className="path">
-                {viewer.hit.rootName}/{viewer.hit.path}
-                {dirty && <span className="dirty"> ●</span>}
-              </span>
-              <span className="hints">
-                Esc back · {isMac ? "⌘⌥" : "Ctrl+Alt+"}↓↑ next result · {modLabel}S save · {modLabel}B definition · {altLabel}F7 usages ·{" "}
-                {modLabel}L line · {modLabel}F find
-              </span>
-            </header>
-            <main className="viewer">
-              {sidebarOpen && (contextRows.length > 0 || (agentView && run)) && (
-                <aside className="context">
-                  <button className="context-query" onClick={backToPalette} title="Back to search (Esc)">
-                    <ArrowLeft size={14} />
-                    <span>{list ? list.title : query || "Search"}</span>
-                    {!list && <span className="context-tab">{tabs.find((t) => t.tab === tab)?.label}</span>}
-                  </button>
-                  <div className="context-body">
-                    {agentView && run && <AgentAnswer run={run} onOpen={openLocation} />}
-                    {contextRows.map((row, i) =>
-                      row.type === "agent" ? null : (
-                        <RowView
-                          key={i}
-                          row={row}
-                          selected={row.type === "hit" && sameHit(row.hit, viewer.hit)}
-                          onSelect={() => row.type === "hit" && openFromContext(row.hit)}
-                          onOpen={() => {}}
-                        />
-                      ),
-                    )}
-                  </div>
-                </aside>
-              )}
-              <Code
-                path={viewer.hit.path}
-                content={viewer.content}
-                line={viewer.hit.line}
-                column={viewer.hit.column}
-                editable
-                onDirty={(d) => (setDirty(d), setDiscardArmed(false))}
-                onSave={save}
-                onDefinition={goToDefinition}
-                onUsages={findUsages}
-                onEscape={backToPalette}
-              />
-            </main>
-            {footer}
+          <div className="viewer-layout">
+            {(treeOpen || showContext) && (
+              <div className="side">
+                {showContext && (
+                  <aside className="card context">
+                    <button className="context-query" onClick={backToPalette} title="Back to search (Esc)">
+                      <ArrowLeft size={14} />
+                      <span>{list ? list.title : query || "Search"}</span>
+                      {!list && <span className="context-tab">{tabs.find((t) => t.tab === tab)?.label}</span>}
+                    </button>
+                    <div className="context-body">
+                      {agentView && run && <AgentAnswer run={run} onOpen={openLocation} />}
+                      {contextRows.map((row, i) =>
+                        row.type === "agent" ? null : (
+                          <RowView
+                            key={i}
+                            row={row}
+                            selected={row.type === "hit" && sameHit(row.hit, viewer.hit)}
+                            onSelect={() => row.type === "hit" && openFromContext(row.hit)}
+                            onOpen={() => {}}
+                          />
+                        ),
+                      )}
+                    </div>
+                  </aside>
+                )}
+                {treeOpen && (
+                  <aside className="card">
+                    <Tree
+                      root={viewer.hit.root}
+                      rootName={viewer.hit.rootName}
+                      path={viewer.hit.path}
+                      reveal={treeReveal}
+                      version={indexVersion}
+                      focus={treeFocus}
+                      onOpen={openFromTree}
+                      onEscape={() => setCodeFocus((n) => n + 1)}
+                    />
+                  </aside>
+                )}
+              </div>
+            )}
+            <div className="card">
+              <header className="drag viewer-header">
+                <button className="icon-button" title={sidebarOpen ? "Hide search" : "Show search"} onClick={() => setSidebarOpen(!sidebarOpen)}>
+                  {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+                </button>
+                <button className="icon-button" title={`${treeOpen ? "Hide" : "Show"} project tree (${modLabel}1)`} onClick={() => showTree(!treeOpen)}>
+                  <FolderTree size={15} />
+                </button>
+                <span className="path">
+                  {crumbs(viewer.hit.rootName, viewer.hit.path).map((c, i, all) =>
+                    i === all.length - 1 ? (
+                      <span key={i}>{c.name}</span>
+                    ) : (
+                      <span key={i}>
+                        <button className="crumb" onClick={() => revealInTree(c.path)}>
+                          {c.name}
+                        </button>
+                        <span className="crumb-sep">/</span>
+                      </span>
+                    ),
+                  )}
+                  {dirty && <span className="dirty"> ●</span>}
+                </span>
+                <span className="hints">
+                  Esc back · {modLabel}1 tree · {isMac ? "⌘⌥" : "Ctrl+Alt+"}↓↑ next result · {modLabel}S save · {modLabel}B definition ·{" "}
+                  {altLabel}F7 usages · {modLabel}L line · {modLabel}F find
+                </span>
+              </header>
+              <main className="viewer">
+                <Code
+                  path={viewer.hit.path}
+                  content={viewer.content}
+                  line={viewer.hit.line}
+                  column={viewer.hit.column}
+                  editable
+                  focus={codeFocus}
+                  onDirty={(d) => (setDirty(d), setDiscardArmed(false))}
+                  onSave={save}
+                  onDefinition={goToDefinition}
+                  onUsages={findUsages}
+                  onEscape={backToPalette}
+                />
+              </main>
+              {footer}
+            </div>
           </div>
         )
       )}
@@ -484,6 +578,13 @@ async function search(tab: Tab, q: string, regex: boolean, matchCase: boolean, s
   }
   const hits = await api.searchTab(tab as Exclude<Tab, "all" | "agent">, q, regex, matchCase, signal);
   return hits.map((hit) => ({ type: "hit", hit }));
+}
+
+// crumbs splits a file path into its folders, each with its path in the
+// root ("" for the root), and the file name last.
+function crumbs(rootName: string, path: string): { name: string; path: string }[] {
+  const parts = path.split("/");
+  return [{ name: rootName, path: "" }, ...parts.map((name, i) => ({ name, path: parts.slice(0, i + 1).join("/") }))];
 }
 
 function sameHit(a: Hit, b: Hit): boolean {

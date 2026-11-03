@@ -166,14 +166,28 @@ to the palette tabs; shown in the palette window.
 ### Viewer
 
 - Opens on top of the current window, without switching to a separate application.
-- Keeps the search context: a side panel shows the query and its results (or
-  the agent's answer and sources); clicking a result opens it in place, and
-  `Cmd+Alt+Down` / `Cmd+Alt+Up` go to the next / previous result. The panel
-  can be hidden.
+- Laid out as floating bubbles, like the palette: the search context, the
+  project tree and the code. Hidden bubbles free their space.
+- **Search context:** the query and its results (or the agent's answer and
+  sources); clicking a result opens it in place, and `Cmd+Alt+Down` /
+  `Cmd+Alt+Up` go to the next / previous result. Can be hidden.
+- **Project tree:** the indexed files of the open file's code root, expanded
+  to the open file. Folders expand and collapse; choosing a file opens it.
+  `Cmd+1` shows the tree and moves focus to it, or hides it when it has focus;
+  in the tree the arrow keys move and expand or collapse, `Enter` opens and
+  `Esc` returns to the code. Can be hidden.
+- The path above the code is a breadcrumb; choosing a folder in it reveals
+  that folder in the tree.
 - Syntax highlighting, go to line, find in file.
 - Go to definition and find usages; back and forward navigation history.
-- `Esc` returns to the palette; `Cmd+W` hides the window, keeping unsaved
-  edits for the next time it is shown.
+- `Esc` or `Cmd+W` closes the file and returns to the palette, like closing
+  a tab. With unsaved edits the first press reminds to save, a second one
+  discards them.
+- Hidden from the viewer by clicking elsewhere, Docent reopens in the viewer
+  at the same file and place, keeping unsaved edits.
+- The hotkey pressed in the viewer goes to the palette, like `Esc`, with the
+  query selected; pressed again there, it hides Docent. With unsaved edits it
+  only reminds to save or discard them.
 
 ### Editing
 
@@ -199,7 +213,7 @@ In scope:
 - All palette tabs (All, Types, Symbols, Files, Text, Agent) with shortcut
   characters; results as snippets with preview.
 - Viewer: syntax highlighting, go to line, find in file, go to definition and
-  find usages, basic editing and saving.
+  find usages, basic editing and saving, project tree.
 - Built-in agent: Anthropic and OpenAI-compatible providers, one configured
   agent, API key in the OS credential store.
 - Settings screen for code roots and the agent.
@@ -309,3 +323,19 @@ Decisions on open questions, with date and a short rationale.
 - **2026-11-03 — Moved palette position lasts until restart.** Dragging the
   palette is for adjusting it to the current setup; a restart returns it to
   the default place, so there is nothing to reset in settings.
+- **2026-11-03 — Project tree as a bubble in the viewer, not a palette tab.**
+  Palette tabs are search modes, and a tree is not one; the tree is needed
+  while reading code, to see where a file sits and what is next to it.
+  Bubbles in one window were chosen over separate windows for the code,
+  search and tree: one window keeps summoning, hiding and returning focus as
+  they are, while separate windows would need focus to pass between them
+  without hiding Docent. Separate windows can be revisited if a tree on
+  another screen turns out to be needed.
+- **2026-11-03 — The hotkey in the viewer opens search.** Docent reopens in
+  the viewer it was hidden from, so the way back to search has to be obvious;
+  the summoning hotkey is already under the fingers. Considered: always
+  reopening the palette with a "back to file" row, which loses the code on
+  every click elsewhere.
+- **2026-11-03 — `Cmd+W` in the viewer closes the file.** It reads as closing
+  a tab, not hiding the app, so it returns to search like `Esc`; in the
+  palette it still hides Docent.

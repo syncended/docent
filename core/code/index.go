@@ -405,6 +405,57 @@ func ReadFile(root, path string) (string, error) {
 	return string(b), nil
 }
 
+// Entry is a file or folder directly inside a folder of a root.
+type Entry struct {
+	Name string `json:"name"`
+	Dir  bool   `json:"dir"`
+}
+
+// ListDir returns the indexed files and folders directly inside dir, a
+// slash-separated path relative to the root ("" is the root itself).
+// Folders come first; only folders with indexed files are listed.
+func ListDir(id, dir string) ([]Entry, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+	var r *root
+	for _, c := range roots {
+		if c.id == id {
+			r = c
+		}
+	}
+	if r == nil {
+		return nil, fmt.Errorf("unknown root %q", id)
+	}
+	prefix := strings.Trim(dir, "/")
+	if prefix != "" {
+		prefix += "/"
+	}
+	seen := map[string]bool{}
+	var entries []Entry
+	for _, f := range r.files {
+		rest, ok := strings.CutPrefix(f.Path, prefix)
+		if !ok {
+			continue
+		}
+		name, _, sub := strings.Cut(rest, "/")
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		entries = append(entries, Entry{Name: name, Dir: sub})
+	}
+	if entries == nil && prefix != "" {
+		return nil, fmt.Errorf("no indexed files in %q", dir)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Dir != entries[j].Dir {
+			return entries[i].Dir
+		}
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+	})
+	return entries, nil
+}
+
 // WriteFile replaces the content of an existing file in a root.
 func WriteFile(root, path, content string) error {
 	_, abs, err := resolve(root, path)

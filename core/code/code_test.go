@@ -163,3 +163,26 @@ func TestReindexKeepsUnchanged(t *testing.T) {
 		t.Errorf("reindex changed counts: %+v → %+v", before, after)
 	}
 }
+
+func TestListDir(t *testing.T) {
+	id := setup(t)
+	for _, c := range []struct {
+		dir  string
+		want []Entry
+	}{
+		{"", []Entry{{"api", true}, {"shop", true}, {"README.md", false}}},
+		{"shop", []Entry{{"order.go", false}, {"Order.java", false}}},
+		{"/shop/", []Entry{{"order.go", false}, {"Order.java", false}}},
+	} {
+		got, err := ListDir(id, c.dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("ListDir(%q) = %v, want %v", c.dir, got, c.want)
+		}
+	}
+	if _, err := ListDir(id, "missing"); err == nil {
+		t.Error("ListDir(missing): want error")
+	}
+}

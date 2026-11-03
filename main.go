@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"log"
+	"strings"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -49,17 +50,20 @@ var (
 type anchor struct{ x, y float64 }
 
 // layouts are the palette window sizes: a Spotlight-like search bar, the bar
-// with results below it, and the file viewer.
+// with results below it, and the file viewer with or without the side column.
 var layouts = map[string]struct{ width, height int }{
 	"compact": {720, 92},
 	"results": {720, 600},
 	"viewer":  {1100, 740},
+	// The viewer with the side column (frontend .side, 240px + 8px gap).
+	"viewer-side": {1348, 740},
 }
 
 func init() {
 	application.RegisterEvent[code.Progress]("index:progress")
 	application.RegisterEvent[[]code.RootInfo]("index:done")
 	application.RegisterEvent[string]("palette:shown")
+	application.RegisterEvent[string]("palette:search")
 	application.RegisterEvent[string]("settings:open")
 	application.RegisterEvent[agentEvent]("agent:event")
 }
@@ -164,12 +168,18 @@ func run() error {
 	return app.Run()
 }
 
+// togglePalette handles the hotkey: it summons Docent, goes from the viewer
+// to the palette, and hides the palette.
 func togglePalette() {
-	if palette.IsVisible() {
-		hidePalette()
+	if !palette.IsVisible() {
+		showPalette()
 		return
 	}
-	showPalette()
+	if name, _ := layout.Load().(string); strings.HasPrefix(name, "viewer") {
+		app.Event.Emit("palette:search", "")
+		return
+	}
+	hidePalette()
 }
 
 func showPalette() {
@@ -276,6 +286,8 @@ func placeOn(screen *application.Screen) {
 		return
 	}
 	area := screen.WorkArea
+	size.width = min(size.width, area.Width)
+	size.height = min(size.height, area.Height-20)
 	x := area.X + (area.Width-size.width)/2
 	y := area.Y + area.Height*paletteTop/100
 	if a := moved.Load(); a != nil {

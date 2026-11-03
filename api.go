@@ -25,6 +25,7 @@ func apiMiddleware(next http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/search", handleSearch)
 	mux.HandleFunc("GET /api/file", handleReadFile)
 	mux.HandleFunc("PUT /api/file", handleWriteFile)
+	mux.HandleFunc("GET /api/dir", handleListDir)
 	mux.HandleFunc("GET /api/definitions", handleDefinitions)
 	mux.HandleFunc("GET /api/usages", handleUsages)
 	mux.HandleFunc("POST /api/hide", handleHide)
@@ -139,6 +140,15 @@ func handleReadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"content": content})
+}
+
+func handleListDir(w http.ResponseWriter, r *http.Request) {
+	entries, err := code.ListDir(r.URL.Query().Get("root"), r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, entries)
 }
 
 func handleWriteFile(w http.ResponseWriter, r *http.Request) {

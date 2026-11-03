@@ -75,6 +75,15 @@ export const searchTab = (tab: Exclude<Tab, "all" | "agent">, q: string, regex: 
 export const readFile = (root: string, path: string) =>
   request<{ content: string }>("GET", "/api/file", { root, path }).then((r) => r.content);
 
+export interface Entry {
+  name: string;
+  dir: boolean;
+}
+
+// listDir returns the indexed files and folders directly inside a folder of a root.
+export const listDir = (root: string, path: string) =>
+  request<Entry[] | null>("GET", "/api/dir", { root, path }).then((r) => r ?? []);
+
 export const writeFile = (root: string, path: string, content: string) =>
   request<{ ok: boolean }>("PUT", "/api/file", { root, path }, content);
 
@@ -84,7 +93,7 @@ export const definitions = (ident: string) =>
 export const usages = (ident: string) =>
   request<{ hits: Hit[] }>("GET", "/api/usages", { ident }).then((r) => r.hits ?? []);
 
-export type Layout = "compact" | "results" | "viewer";
+export type Layout = "compact" | "results" | "viewer" | "viewer-side";
 
 export const setLayout = (name: Layout) => request<{ ok: boolean }>("POST", "/api/layout", { name });
 
