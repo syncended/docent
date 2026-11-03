@@ -59,6 +59,8 @@ Docent is a notepad with great search, not a development environment.
 
 ## Features
 
+Shortcuts are written with `Cmd` as on macOS; on Linux and Windows `Cmd` is `Ctrl`.
+
 ### Code sources
 
 - Docent searches local checkouts: the user adds folders, Docent indexes them.
@@ -135,7 +137,7 @@ For both kinds:
 
 ### Settings
 
-Opened with `Cmd+,` from the palette, from the menu bar icon or the gear next
+Opened with `Cmd+,` from the palette, from the menu bar (tray) icon or the gear next
 to the palette tabs; shown in the palette window.
 
 - **Code roots:** add a folder with the system folder picker or by typing a
@@ -180,7 +182,7 @@ to the palette tabs; shown in the palette window.
 ### MVP
 
 Goal: replace the repository web UI for "I know what I'm looking for" and the
-agent window for "find by meaning", on macOS.
+agent window for "find by meaning", on macOS and Windows.
 
 In scope:
 
@@ -205,8 +207,7 @@ Out of scope (after MVP):
 - Background index updates on file changes.
 - Navigation history in the viewer.
 - Double `Shift` hotkey.
-- Linux and Windows builds (code stays cross-platform; platform-specific
-  parts are isolated).
+- Linux build (code stays cross-platform; platform-specific parts are isolated).
 - Changing the hotkey from the UI.
 - Look and feel beyond a clean default.
 
@@ -237,6 +238,12 @@ Only what is critical to the product.
   bubbles over a transparent window, which requires making WKWebView
   transparent through a private API (`private_mac_apis` build tag). This rules
   out the Mac App Store; Docent is distributed outside it.
+- **zoekt fork with Windows support.** Upstream zoekt builds only on Unix.
+  Docent uses a fork whose Windows build reads index shards into memory
+  instead of memory-mapping them: Windows cannot replace a mapped file, and
+  re-indexing replaces shards while they are being searched. On Windows the
+  index therefore occupies RAM; the fork is dropped once upstream supports
+  Windows.
 - **Agents:**
   - The built-in agent is Docent's own tool-calling loop over provider APIs
     (Anthropic Messages API, OpenAI-compatible Chat Completions), calling core
@@ -293,3 +300,6 @@ Decisions on open questions, with date and a short rationale.
 - **2026-11-03 — Settings UI in the MVP.** Pasting an API key needs a UI: the
   key goes to the OS credential store, not to the config file, so there is no
   file to edit for it. Roots are managed on the same screen.
+- **2026-11-03 — Windows in the MVP.** Docent is needed on Windows too, and
+  the core already builds and passes its tests there with the zoekt fork.
+  Linux stays after the MVP.

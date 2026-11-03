@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FolderPlus, Trash2, X } from "lucide-react";
 import * as api from "./api";
+import { cmd, modLabel } from "./keys";
 
 // RootDraft keeps the include list as typed, so separators survive editing.
 type RootDraft = { path: string; include: string; exclude: string[] | null };
@@ -88,7 +89,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
     if (e.key === "Escape") {
       e.preventDefault();
       props.onClose();
-    } else if (e.metaKey && e.key === "s") {
+    } else if (cmd(e) && e.key === "s") {
       e.preventDefault();
       save();
     }
@@ -189,7 +190,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
             Cancel
           </button>
           <button className="pill active" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save ⌘S"}
+            {saving ? "Saving…" : `Save ${modLabel}S`}
           </button>
         </div>
       </footer>

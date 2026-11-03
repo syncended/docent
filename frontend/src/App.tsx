@@ -6,6 +6,7 @@ import type { Hit, Progress, Status, Tab } from "./api";
 import { Code } from "./Code";
 import { Settings } from "./Settings";
 import { AgentAnswer, applyEvent, newRun, stepLabel, type Run } from "./Agent";
+import { altLabel, cmd, hotkeyLabel, isMac, modLabel } from "./keys";
 
 // shortcut switches to the tab when typed into an empty query.
 const tabs: { tab: Tab; label: string; icon: LucideIcon; shortcut?: string }[] = [
@@ -74,10 +75,10 @@ export function App() {
         setIndexVersion((v) => v + 1);
       }),
     ];
-    // ⌘W hides the window in any mode; unsaved edits stay in the viewer.
-    // ⌘, opens settings.
+    // Cmd+W hides the window in any mode; unsaved edits stay in the viewer.
+    // Cmd+, opens settings.
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey) return;
+      if (!cmd(e) || e.shiftKey) return;
       if (e.altKey) {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           e.preventDefault();
@@ -230,7 +231,7 @@ export function App() {
   const backToPalette = () => {
     if (dirty && !discardArmed) {
       setDiscardArmed(true);
-      setNotice("Unsaved changes: ⌘S to save, Esc again to discard");
+      setNotice(`Unsaved changes: ${modLabel}S to save, Esc again to discard`);
       return;
     }
     setDirty(false);
@@ -305,7 +306,7 @@ export function App() {
   const footer = (
     <footer className="status">
       <span>{notice || statusLine(status, progress)}</span>
-      <span>{status?.hotkey.replace("CmdOrCtrl", "⌘").replace("Shift", "⇧").replaceAll("+", "")}</span>
+      <span>{status && hotkeyLabel(status.hotkey)}</span>
     </footer>
   );
 
@@ -333,7 +334,7 @@ export function App() {
                 </button>
                 <button className="tab" onClick={() => setMode("settings")}>
                   <SettingsIcon size={14} strokeWidth={2} />
-                  Settings ⌘,
+                  Settings {modLabel},
                 </button>
                 {notice && <span className="tab-note">{notice}</span>}
               </>
@@ -366,7 +367,7 @@ export function App() {
               </span>
             )}
             {!noRoots && (
-              <button className={progress ? "tab gear after-progress" : "tab gear"} title="Settings (⌘,)" onClick={() => setMode("settings")}>
+              <button className={progress ? "tab gear after-progress" : "tab gear"} title={`Settings (${modLabel},)`} onClick={() => setMode("settings")}>
                 <SettingsIcon size={14} strokeWidth={2} />
               </button>
             )}
@@ -421,7 +422,10 @@ export function App() {
                 {viewer.hit.rootName}/{viewer.hit.path}
                 {dirty && <span className="dirty"> ●</span>}
               </span>
-              <span className="hints">Esc back · ⌘⌥↓↑ next result · ⌘S save · ⌘B definition · ⌥F7 usages · ⌘L line · ⌘F find</span>
+              <span className="hints">
+                Esc back · {isMac ? "⌘⌥" : "Ctrl+Alt+"}↓↑ next result · {modLabel}S save · {modLabel}B definition · {altLabel}F7 usages ·{" "}
+                {modLabel}L line · {modLabel}F find
+              </span>
             </header>
             <main className="viewer">
               {sidebarOpen && (contextRows.length > 0 || (agentView && run)) && (

@@ -6,6 +6,7 @@ import { gotoLine } from "@codemirror/search";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { languageFor } from "./languages";
 import { serverHighlight, serverHighlighted } from "./highlight";
+import { cmd } from "./keys";
 
 export interface CodeProps {
   path: string;
@@ -76,7 +77,7 @@ function extensions(path: string, editable: boolean, original: string, latest: {
     EditorState.readOnly.of(!editable),
     EditorView.domEventHandlers({
       mousedown: (e, v) => {
-        if (!e.metaKey) return false;
+        if (!cmd(e)) return false;
         const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
         const w = pos == null ? "" : word(v, pos);
         if (w) latest.current.onDefinition?.(w);

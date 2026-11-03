@@ -99,6 +99,8 @@ func run() error {
 		Frameless: true,
 		Hidden:    true,
 		URL:       "/",
+		// Mac.WindowLevel takes precedence on macOS.
+		AlwaysOnTop: true,
 		Mac: application.MacWindow{
 			CornerRadius: 16,
 			// The palette is floating bubbles over a transparent window; the
@@ -111,6 +113,12 @@ func run() error {
 			},
 			WindowLevel:        application.MacWindowLevelFloating,
 			CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces | application.MacWindowCollectionBehaviorFullScreenAuxiliary,
+		},
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: true,
+			// The frontend draws its own bubbles; no shadow around the
+			// transparent window.
+			DisableFramelessWindowDecorations: true,
 		},
 		// Transparent, so the rounded corners drawn by the frontend show through.
 		BackgroundType: application.BackgroundTypeTransparent,
@@ -126,6 +134,7 @@ func run() error {
 
 	tray := app.SystemTray.New()
 	tray.SetLabel("⌕")
+	tray.SetTooltip("Docent")
 	menu := app.NewMenu()
 	menu.Add("Search…").OnClick(func(*application.Context) { showPalette() })
 	menu.Add("Settings…").OnClick(func(*application.Context) { showSettings() })

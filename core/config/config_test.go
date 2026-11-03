@@ -17,7 +17,7 @@ func TestSaveLoad(t *testing.T) {
 	in := &Config{
 		Roots: []Root{
 			{Path: filepath.Join(home, "src", "app"), Include: []string{"api", "proto"}},
-			{Path: "/opt/code"},
+			{Path: filepath.Join(string(filepath.Separator), "opt", "code")},
 		},
 		Agent: Agent{Provider: "anthropic", Model: "claude-sonnet-5-5"},
 	}
@@ -33,7 +33,7 @@ func TestSaveLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.Roots[0].Path != in.Roots[0].Path || !slices.Equal(out.Roots[0].Include, in.Roots[0].Include) ||
-		out.Roots[1].Path != "/opt/code" || out.Agent != in.Agent {
+		out.Roots[1].Path != in.Roots[1].Path || out.Agent != in.Agent {
 		t.Errorf("round trip: got %+v, want %+v", out, in)
 	}
 }

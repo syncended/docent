@@ -17,15 +17,26 @@ Requirements: Go 1.26+, Node.js, and the [Wails v3](https://v3.wails.io) CLI:
 go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 ```
 
-Build and run (macOS for now):
+Build and run on macOS:
 
 ```sh
 wails3 build
 ./bin/docent
 ```
 
-Then press `Cmd+Shift+Space`, add a folder, and search. Settings (`Cmd+,`)
-configure code roots and the agent provider; API keys are kept in the system
-credential store.
+On Windows, a C compiler is needed for tree-sitter
+([llvm-mingw](https://github.com/mstorsjo/llvm-mingw) or MSYS2 MinGW-w64 on `PATH`):
+
+```sh
+wails3 build
+bin\docent.exe
+```
+
+To cross-compile for Windows from macOS or Linux, build the Docker image once
+with `wails3 task setup:docker`, then run `wails3 build GOOS=windows`.
+
+Then press `Cmd+Shift+Space` (`Ctrl+Shift+Space` on Windows), add a folder,
+and search. Settings (`Cmd+,`, `Ctrl+,` on Windows) configure code roots and
+the agent provider; API keys are kept in the system credential store.
 
 Tests: `go test ./...`
