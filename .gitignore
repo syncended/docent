@@ -1,0 +1,8 @@
+/bin/
+/.task/
+/.wails/
+/frontend/node_modules/
+# Built assets; .keep lets go:embed compile before the first frontend build.
+/frontend/dist/*
+!/frontend/dist/.keep
+.DS_Store

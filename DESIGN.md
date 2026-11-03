@@ -82,8 +82,8 @@ Docent is a notepad with great search, not a development environment.
   the hotkey is configurable.
 - Double-tap `Shift` (as in IntelliJ IDEA) is available as an opt-in
   alternative on platforms that allow it.
-- Pressing the hotkey again or `Esc` hides the palette and returns focus to
-  the previous window.
+- Pressing the hotkey again, `Esc`, `Cmd+W` or clicking elsewhere hides the
+  palette and returns focus to the previous window.
 - The palette reopens with the last query and tab; the query is selected so
   a new one can be typed right away.
 
@@ -97,7 +97,7 @@ Search modes are tabs, as in IntelliJ IDEA's Search Everywhere:
 | Types   | Classes, enums, interfaces, proto messages and services             | `#`      |
 | Symbols | Any named declaration: functions, methods, fields, constants, enum values | `@` |
 | Files   | File names and paths                                                | `/`      |
-| Text    | Full-text, with an optional regular expression mode                 |          |
+| Text    | Full-text, ignoring case; optional regular expression and Match case modes |   |
 | Agent   | Natural language query, search by functionality (see [Agents](#agents)) | `?`  |
 
 - `Tab` / `Shift+Tab` cycle through tabs.
@@ -133,6 +133,24 @@ For both kinds:
 - Several agents can be configured; one is the default, another can be chosen
   per query.
 
+### Settings
+
+Opened with `Cmd+,` from the palette, from the menu bar icon or the gear next
+to the palette tabs; shown in the palette window.
+
+- **Code roots:** add a folder with the system folder picker or by typing a
+  path, limit it to subdirectories, remove it. Saving re-indexes in the
+  background; search keeps working meanwhile.
+- **Agent:** provider (Anthropic or OpenAI-compatible), model, optional base
+  URL, API key. The key is written to the OS credential store and never shown
+  again; it can be replaced or removed.
+- **Palette:** which screen it opens on: the one with the focused window
+  (default), the one with the pointer, or the primary screen.
+- Shows where the config file lives, for those who prefer editing it by hand.
+- First run: with no roots, the palette stays a compact bar and offers
+  "Add folder…" (system folder picker, then indexing starts) and Settings.
+- `Cmd+S` saves, `Esc` returns to the palette without saving.
+
 ### Results
 
 - Each result is a highlighted code snippet with file path and line, not just a name.
@@ -143,9 +161,14 @@ For both kinds:
 ### Viewer
 
 - Opens on top of the current window, without switching to a separate application.
+- Keeps the search context: a side panel shows the query and its results (or
+  the agent's answer and sources); clicking a result opens it in place, and
+  `Cmd+Alt+Down` / `Cmd+Alt+Up` go to the next / previous result. The panel
+  can be hidden.
 - Syntax highlighting, go to line, find in file.
 - Go to definition and find usages; back and forward navigation history.
-- Closes with a single key, returning focus.
+- `Esc` returns to the palette; `Cmd+W` hides the window, keeping unsaved
+  edits for the next time it is shown.
 
 ### Editing
 
@@ -163,8 +186,9 @@ In scope:
 
 - Background app with the default global hotkey; palette over the active
   window; `Esc` / hotkey hides it and returns focus.
-- Code sources: folders from a config file, optionally limited to subdirectories.
-  Indexing at startup and on demand.
+- Code sources: folders from the settings screen (stored in a config file),
+  optionally limited to subdirectories. Indexing at startup, on demand and
+  after settings change.
 - Structural search for the full language minimum (Kotlin, Java, C++, Go,
   Protobuf, JavaScript, TypeScript).
 - All palette tabs (All, Types, Symbols, Files, Text, Agent) with shortcut
@@ -173,6 +197,7 @@ In scope:
   find usages, basic editing and saving.
 - Built-in agent: Anthropic and OpenAI-compatible providers, one configured
   agent, API key in the OS credential store.
+- Settings screen for code roots and the agent.
 
 Out of scope (after MVP):
 
@@ -182,7 +207,7 @@ Out of scope (after MVP):
 - Double `Shift` hotkey.
 - Linux and Windows builds (code stays cross-platform; platform-specific
   parts are isolated).
-- Settings UI.
+- Changing the hotkey from the UI.
 - Look and feel beyond a clean default.
 
 ## Non-goals
@@ -208,6 +233,10 @@ Only what is critical to the product.
   replaced (e.g. by Tauri with the Go core as a sidecar process) without
   touching the core, and the same core can later be exposed to agents as an
   MCP server.
+- **Transparent palette window on macOS.** The palette is drawn as separate
+  bubbles over a transparent window, which requires making WKWebView
+  transparent through a private API (`private_mac_apis` build tag). This rules
+  out the Mac App Store; Docent is distributed outside it.
 - **Agents:**
   - The built-in agent is Docent's own tool-calling loop over provider APIs
     (Anthropic Messages API, OpenAI-compatible Chat Completions), calling core
@@ -220,10 +249,9 @@ Only what is critical to the product.
 
 ## Open questions
 
-- **Look and feel.** Translucent chrome in the spirit of macOS Liquid Glass
-  (Mica/Acrylic on Windows, solid fallback on Linux), with code always on an
-  opaque surface? Wails v3 supports native Liquid Glass, but webview
-  transparency requires private macOS APIs. To be decided during the MVP.
+- **Look and feel.** Translucent materials in the spirit of macOS Liquid Glass
+  (Mica/Acrylic on Windows) for the palette bubbles, with code always on an
+  opaque surface? To be decided during the MVP.
 
 ## Decision log
 
@@ -257,3 +285,11 @@ Decisions on open questions, with date and a short rationale.
   tabs keep the current mode visible; `#`, `@`, `/`, `?` are quick ways to
   switch tabs rather than a query syntax. The agent never starts implicitly,
   so that typing does not spend tokens.
+- **2026-11-03 — Palette as floating bubbles; private macOS API accepted.**
+  A Spotlight-like search bubble with tab bubbles below it, and a result card
+  that appears only when there are results. A transparent webview has no public
+  API on macOS; the private one is acceptable since Docent does not target the
+  Mac App Store. If a macOS update breaks it, the fallback is an opaque window.
+- **2026-11-03 — Settings UI in the MVP.** Pasting an API key needs a UI: the
+  key goes to the OS credential store, not to the config file, so there is no
+  file to edit for it. Roots are managed on the same screen.
