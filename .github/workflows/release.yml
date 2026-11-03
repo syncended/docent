@@ -26,7 +26,13 @@ jobs:
           node-version: 22
       - run: go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}"
       - run: build/set-version.sh "${GITHUB_REF_NAME#v}"
-      # MinGW (for tree-sitter's cgo) and NSIS come with the runner image.
+      # MinGW (for tree-sitter's cgo) comes with the runner image; NSIS does not.
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          $nsis = "C:\Program Files (x86)\NSIS"
+          if (-not (Test-Path "$nsis\makensis.exe")) { choco install nsis -y --no-progress }
+          $nsis | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - run: wails3 package
       - name: Collect artifacts
         run: |
