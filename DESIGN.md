@@ -152,6 +152,39 @@ For both kinds:
 - A file open in the viewer can be edited and saved.
 - Basic text editing only: no autocompletion, refactoring or diagnostics.
 
+## Milestones
+
+### MVP
+
+Goal: replace the repository web UI for "I know what I'm looking for" and the
+agent window for "find by meaning", on macOS.
+
+In scope:
+
+- Background app with the default global hotkey; palette over the active
+  window; `Esc` / hotkey hides it and returns focus.
+- Code sources: folders from a config file, optionally limited to subdirectories.
+  Indexing at startup and on demand.
+- Structural search for the full language minimum (Kotlin, Java, C++, Go,
+  Protobuf, JavaScript, TypeScript).
+- All palette tabs (All, Types, Symbols, Files, Text, Agent) with shortcut
+  characters; results as snippets with preview.
+- Viewer: syntax highlighting, go to line, find in file, go to definition and
+  find usages, basic editing and saving.
+- Built-in agent: Anthropic and OpenAI-compatible providers, one configured
+  agent, API key in the OS credential store.
+
+Out of scope (after MVP):
+
+- External agents over ACP; exposing search tools over MCP; several agents.
+- Background index updates on file changes.
+- Navigation history in the viewer.
+- Double `Shift` hotkey.
+- Linux and Windows builds (code stays cross-platform; platform-specific
+  parts are isolated).
+- Settings UI.
+- Look and feel beyond a clean default.
+
 ## Non-goals
 
 - Building, running, debugging, testing.
