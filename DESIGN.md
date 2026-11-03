@@ -135,6 +135,12 @@ For both kinds:
 - The agent is read-only: it cannot modify files or run commands through Docent.
 - Findings, progress and the final answer are shown the same way regardless of
   which agent produced them.
+- **Follow-up questions.** Below an answer, a field asks a follow-up in the
+  same thread: the agent sees the thread's earlier questions and answers.
+  The search bar always starts a new thread. Earlier turns are shown
+  collapsed above the latest answer. `Tab` in the search bar moves to the
+  follow-up field while an answer is shown; `Esc` there returns to the
+  search bar.
 - Several agents can be configured; one is the default, another can be chosen
   per query.
 
@@ -233,7 +239,8 @@ Out of scope (after MVP):
 - Building, running, debugging, testing.
 - Refactoring, IDE-grade autocompletion, error diagnostics.
 - Git UI, terminal, task management.
-- Replacing the agent window or a full-blown agent chat inside Docent.
+- Replacing the agent window or a full-blown agent chat inside Docent:
+  follow-ups refine one search, they do not make a chat.
 
 ## Technical decisions
 
@@ -339,3 +346,8 @@ Decisions on open questions, with date and a short rationale.
 - **2026-11-03 — `Cmd+W` in the viewer closes the file.** It reads as closing
   a tab, not hiding the app, so it returns to search like `Esc`; in the
   palette it still hides Docent.
+- **2026-11-03 — Follow-ups in their own field.** Answers often need one more
+  question. Where the question is typed decides what it is: the search bar
+  starts over, the field below the answer continues, so there is no hidden
+  mode or extra key to remember. Earlier turns go to the agent as plain
+  questions and answers; their citations carry the places already found.

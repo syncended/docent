@@ -64,6 +64,11 @@ func TestAskOpenAI(t *testing.T) {
 		var msg map[string]any
 		switch turn {
 		case 1:
+			if len(req.Messages) != 4 || req.Messages[1]["content"] != "what is an order?" ||
+				req.Messages[2]["role"] != "assistant" || req.Messages[2]["content"] != "A struct." ||
+				req.Messages[3]["content"] != "where is the order status?" {
+				t.Errorf("thread not passed before the question: %v", req.Messages)
+			}
 			msg = map[string]any{
 				"role": "assistant", "content": nil, "reasoning_content": "thinking",
 				"tool_calls": []map[string]any{{
@@ -86,8 +91,9 @@ func TestAskOpenAI(t *testing.T) {
 	defer server.Close()
 
 	var events []Event
+	thread := []Turn{{Question: "what is an order?", Answer: "A struct."}}
 	err := Ask(context.Background(), Config{Provider: "openai", Model: "test-model", BaseURL: server.URL + "/v1", APIKey: "test-key"},
-		"where is the order status?", func(e Event) { events = append(events, e) })
+		thread, "where is the order status?", func(e Event) { events = append(events, e) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +148,7 @@ func TestAskOpenAIStreaming(t *testing.T) {
 	defer server.Close()
 
 	var events []Event
-	err := Ask(context.Background(), Config{Provider: "openai", Model: "m", BaseURL: server.URL, APIKey: "k"},
+	err := Ask(context.Background(), Config{Provider: "openai", Model: "m", BaseURL: server.URL, APIKey: "k"}, nil,
 		"q", func(e Event) { events = append(events, e) })
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +188,7 @@ func TestRunToolValidates(t *testing.T) {
 }
 
 func TestAskWithoutKey(t *testing.T) {
-	if err := Ask(context.Background(), Config{Provider: "openai"}, "q", func(Event) {}); err != ErrNoKey {
+	if err := Ask(context.Background(), Config{Provider: "openai"}, nil, "q", func(Event) {}); err != ErrNoKey {
 		t.Errorf("err = %v", err)
 	}
 }

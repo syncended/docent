@@ -25,8 +25,9 @@ var (
 )
 
 // startAgent cancels the current run, if any, and starts a new one in the
-// background. It returns the run ID carried by its events.
-func startAgent(question string) (int64, error) {
+// background; thread is the earlier turns the question follows up on. It
+// returns the run ID carried by its events.
+func startAgent(thread []agent.Turn, question string) (int64, error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return 0, err
@@ -52,7 +53,7 @@ func startAgent(question string) (int64, error) {
 			Model:    cfg.Agent.Model,
 			BaseURL:  cfg.Agent.BaseURL,
 			APIKey:   key,
-		}, question, emit)
+		}, thread, question, emit)
 		switch {
 		case errors.Is(err, context.Canceled):
 		case err != nil:

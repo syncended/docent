@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/syncended/docent/core/agent"
 	"github.com/syncended/docent/core/code"
 	"github.com/syncended/docent/core/config"
 	"github.com/syncended/docent/core/secrets"
@@ -114,13 +115,14 @@ func handleHighlight(w http.ResponseWriter, r *http.Request) {
 
 func handleAgentAsk(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Question string `json:"question"`
+		Question string       `json:"question"`
+		Thread   []agent.Turn `json:"thread"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || strings.TrimSpace(in.Question) == "" {
 		writeError(w, http.StatusBadRequest, errString("question is required"))
 		return
 	}
-	run, err := startAgent(in.Question)
+	run, err := startAgent(in.Thread, in.Question)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

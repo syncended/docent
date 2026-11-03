@@ -17,7 +17,7 @@ const openAIBaseURL = "https://api.openai.com/v1"
 var httpClient = &http.Client{Timeout: 5 * time.Minute}
 
 // askOpenAI runs the agent over an OpenAI-compatible Chat Completions API.
-func askOpenAI(ctx context.Context, cfg Config, question string, emit func(Event)) error {
+func askOpenAI(ctx context.Context, cfg Config, thread []Turn, question string, emit func(Event)) error {
 	if cfg.Model == "" {
 		return fmt.Errorf("set a model for the OpenAI-compatible provider in Settings")
 	}
@@ -28,10 +28,14 @@ func askOpenAI(ctx context.Context, cfg Config, question string, emit func(Event
 
 	// History is kept as raw JSON so assistant messages are sent back exactly
 	// as received, including provider-specific fields.
-	history := []json.RawMessage{
-		mustJSON(map[string]string{"role": "system", "content": systemPrompt}),
-		mustJSON(map[string]string{"role": "user", "content": question}),
+	history := []json.RawMessage{mustJSON(map[string]string{"role": "system", "content": systemPrompt})}
+	for _, t := range thread {
+		history = append(history,
+			mustJSON(map[string]string{"role": "user", "content": t.Question}),
+			mustJSON(map[string]string{"role": "assistant", "content": t.Answer}),
+		)
 	}
+	history = append(history, mustJSON(map[string]string{"role": "user", "content": question}))
 	for step := 0; ; step++ {
 		final := step == maxSteps
 		if final {

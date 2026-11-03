@@ -37,6 +37,12 @@ type Config struct {
 	APIKey   string
 }
 
+// Turn is an earlier question of a thread and the answer it got.
+type Turn struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
 // maxSteps bounds the number of model turns in one run.
 const maxSteps = 20
 
@@ -44,16 +50,17 @@ const maxSteps = 20
 var ErrNoKey = errors.New("no API key configured: open Settings (⌘,) and paste one")
 
 // Ask answers question by searching the indexed code, reporting progress
-// through emit. It returns when the answer is complete or ctx is cancelled.
-func Ask(ctx context.Context, cfg Config, question string, emit func(Event)) error {
+// through emit. thread holds the earlier turns the question follows up on.
+// It returns when the answer is complete or ctx is cancelled.
+func Ask(ctx context.Context, cfg Config, thread []Turn, question string, emit func(Event)) error {
 	if cfg.APIKey == "" {
 		return ErrNoKey
 	}
 	switch cfg.Provider {
 	case "anthropic":
-		return askAnthropic(ctx, cfg, question, emit)
+		return askAnthropic(ctx, cfg, thread, question, emit)
 	case "openai":
-		return askOpenAI(ctx, cfg, question, emit)
+		return askOpenAI(ctx, cfg, thread, question, emit)
 	default:
 		return fmt.Errorf("unknown agent provider %q", cfg.Provider)
 	}

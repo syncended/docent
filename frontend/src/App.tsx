@@ -6,7 +6,7 @@ import type { Hit, Progress, Status, Tab } from "./api";
 import { Code } from "./Code";
 import { Settings } from "./Settings";
 import { Tree } from "./Tree";
-import { AgentAnswer, applyEvent, newRun, stepLabel, type Run } from "./Agent";
+import { AgentAnswer, applyEvent, followUp, newRun, stepLabel, type Run } from "./Agent";
 import { altLabel, cmd, hotkeyLabel, isMac, modLabel } from "./keys";
 
 // shortcut switches to the tab when typed into an empty query.
@@ -48,6 +48,8 @@ export function App() {
   const [dirty, setDirty] = useState(false);
   const [discardArmed, setDiscardArmed] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // followUpField is the follow-up field under an agent answer, when shown.
+  const followUpField = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [treeOpen, setTreeOpen] = useState(true);
   const [treeReveal, setTreeReveal] = useState<{ path: string; n: number } | null>(null);
@@ -177,15 +179,23 @@ export function App() {
     }
   }, []);
 
-  const ask = async (question: string) => {
+  // ask starts a new thread; askFollowUp continues the current one.
+  const ask = (question: string) => {
     question = question.trim();
-    if (!question) return;
+    if (question) startRun(newRun(question));
+  };
+
+  const askFollowUp = (question: string) => {
+    if (run) startRun(followUp(run, question));
+  };
+
+  const startRun = async (next: Run) => {
     setTab("agent");
     setSelected(0);
-    setRun(newRun(question));
+    setRun(next);
     setSourcesOpen(null);
     try {
-      const id = await api.askAgent(question);
+      const id = await api.askAgent(next.thread, next.question);
       runId.current = id;
       setRun((r) => r && { ...r, id });
     } catch (e) {
@@ -214,6 +224,10 @@ export function App() {
     switch (e.key) {
       case "Tab": {
         e.preventDefault();
+        if (!e.shiftKey && followUpField.current) {
+          followUpField.current.focus();
+          return;
+        }
         const i = tabs.findIndex((t) => t.tab === tab);
         setList(null);
         setTab(tabs[(i + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length].tab);
@@ -436,7 +450,9 @@ export function App() {
             <div className="card">
               <main className="body">
                 <section className="results">
-                  {agentView && run && <AgentAnswer run={run} onOpen={openLocation} />}
+                  {agentView && run && (
+                        <AgentAnswer run={run} onOpen={openLocation} onFollowUp={askFollowUp} followUpRef={followUpField} onFollowUpEscape={focusInput} />
+                      )}
                   {agentView && run && run.steps.length > 0 && (
                     <button className="sources-toggle" onClick={() => (setSourcesOpen(!showSources), focusInput())}>
                       {showSources ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -484,7 +500,9 @@ export function App() {
                       {!list && <span className="context-tab">{tabs.find((t) => t.tab === tab)?.label}</span>}
                     </button>
                     <div className="context-body">
-                      {agentView && run && <AgentAnswer run={run} onOpen={openLocation} />}
+                      {agentView && run && (
+                        <AgentAnswer run={run} onOpen={openLocation} onFollowUp={askFollowUp} followUpRef={followUpField} onFollowUpEscape={focusInput} />
+                      )}
                       {contextRows.map((row, i) =>
                         row.type === "agent" ? null : (
                           <RowView
@@ -625,6 +643,12 @@ function statusLine(status: Status | null, progress: Progress | null): string {
 
 function RowView(props: { row: Row; selected: boolean; onSelect: () => void; onOpen: () => void }) {
   const { row } = props;
+  const el = useRef<HTMLDivElement>(null);
+  // Scroll only when the selection moves: rows re-render while an agent
+  // streams, and following the row on every render drags the list along.
+  useEffect(() => {
+    if (props.selected) el.current?.scrollIntoView({ block: "nearest" });
+  }, [props.selected]);
   if (row.type === "header") return <div className="row-header">{row.label}</div>;
   if (row.type === "note") return <div className="row-note">{row.text}</div>;
   const cls = props.selected ? "row selected" : "row";
@@ -640,7 +664,7 @@ function RowView(props: { row: Row; selected: boolean; onSelect: () => void; onO
   }
   const { hit } = row;
   return (
-    <div className={cls} onClick={props.onSelect} onDoubleClick={props.onOpen} ref={(el) => props.selected && el?.scrollIntoView({ block: "nearest" })}>
+    <div className={cls} onClick={props.onSelect} onDoubleClick={props.onOpen} ref={el}>
       <div className="row-main">
         <span className={`kind k-${hit.kind ?? hit.tab}`}>{kindLabel(hit.kind ?? hit.tab)}</span>
         <span className="title">

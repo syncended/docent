@@ -138,8 +138,15 @@ export interface AgentEvent {
   hits?: Hit[];
 }
 
-export const askAgent = (question: string) =>
-  request<{ run: number }>("POST", "/api/agent/ask", {}, JSON.stringify({ question })).then((r) => r.run);
+// Turn is an earlier question of an agent thread and the answer it got.
+export interface Turn {
+  question: string;
+  answer: string;
+}
+
+// askAgent starts a run; thread holds the earlier turns the question follows up on.
+export const askAgent = (thread: Turn[], question: string) =>
+  request<{ run: number }>("POST", "/api/agent/ask", {}, JSON.stringify({ thread, question })).then((r) => r.run);
 
 export const stopAgent = () => request<{ ok: boolean }>("POST", "/api/agent/stop", {});
 

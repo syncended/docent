@@ -571,6 +571,17 @@ mark {
   font-variant-numeric: tabular-nums;
 }
 
+.fade-in {
+  animation: fade-in 240ms ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
 .agent-thinking {
   margin: 2px 0 6px 20px;
   color: var(--text-dim);
@@ -810,6 +821,61 @@ mark {
   display: none;
 }
 
+.agent-turn {
+  margin-bottom: 4px;
+}
+
+.agent-turn-question {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-turn-question:hover {
+  color: var(--text);
+}
+
+.agent-turn-question span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-turn .markdown {
+  padding-left: 19px;
+  color: var(--text-dim);
+}
+
+.agent-question {
+  margin: 8px 0 4px;
+  font-weight: 600;
+}
+
+.follow-up {
+  width: 100%;
+  height: 30px;
+  margin-top: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.follow-up:focus {
+  border-color: rgba(110, 168, 254, 0.55);
+}
+
 .context .agent-answer {
   font-size: 12px;
   border-bottom: 1px solid var(--border);
@@ -830,3 +896,74 @@ mark {
 .tok-variable { color: #e06c75; }
 .tok-namespace { color: #abb2bf; }
 .tok-punctuation { color: #56b6c2; }
+
+/* Find bar in the code viewer (find.ts). */
+.code .cm-panels {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+
+.code .cm-panels-top {
+  border-bottom: 1px solid var(--border);
+}
+
+.find {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.find-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font: 12.5px var(--mono);
+}
+
+.find-input:focus {
+  border-color: rgba(110, 168, 254, 0.55);
+}
+
+.find-input.invalid {
+  border-color: #e06c75;
+}
+
+.find-count {
+  min-width: 64px;
+  margin-right: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.find-button {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font: 12px var(--mono);
+  cursor: pointer;
+}
+
+.find-button:hover {
+  background: #2a2a2f;
+  color: var(--text);
+}
+
+.find-button.active {
+  border-color: rgba(110, 168, 254, 0.55);
+  background: var(--bg-selected);
+  color: var(--text);
+}

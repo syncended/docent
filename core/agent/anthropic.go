@@ -18,7 +18,7 @@ var fallbackModels = []string{"claude-fable-5-1", "claude-opus-5-5", "claude-opu
 
 // askAnthropic runs the agent over the Anthropic Messages API, streaming
 // answer text as it is generated.
-func askAnthropic(ctx context.Context, cfg Config, question string, emit func(Event)) error {
+func askAnthropic(ctx context.Context, cfg Config, thread []Turn, question string, emit func(Event)) error {
 	opts := []option.RequestOption{option.WithAPIKey(cfg.APIKey)}
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
@@ -43,10 +43,14 @@ func askAnthropic(ctx context.Context, cfg Config, question string, emit func(Ev
 		}},
 		// Caches the system prompt, tools and the conversation so far.
 		CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
-		Messages: []anthropic.BetaMessageParam{
-			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(question)),
-		},
 	}
+	for _, t := range thread {
+		params.Messages = append(params.Messages,
+			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(t.Question)),
+			anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleAssistant, Content: []anthropic.BetaContentBlockParamUnion{anthropic.NewBetaTextBlock(t.Answer)}},
+		)
+	}
+	params.Messages = append(params.Messages, anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(question)))
 	// A refused request is re-served by a fallback model in the same call.
 	// Only on the first-party API: proxies may not accept the field.
 	if cfg.BaseURL == "" && slices.Contains(fallbackModels, model) {
