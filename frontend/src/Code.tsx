@@ -2,11 +2,12 @@ import { useEffect, useRef } from "react";
 import { EditorState, Prec, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
-import { gotoLine } from "@codemirror/search";
+import { gotoLine, search } from "@codemirror/search";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { languageFor } from "./languages";
 import { serverHighlight, serverHighlighted } from "./highlight";
 import { cmd } from "./keys";
+import { findPanel } from "./find";
 
 export interface CodeProps {
   path: string;
@@ -75,6 +76,7 @@ function extensions(path: string, editable: boolean, original: string, latest: {
       ]),
     ),
     basicSetup,
+    search({ top: true, createPanel: findPanel }),
     keymap.of([{ key: "Escape", run: () => (latest.current.onEscape?.(), true) }]),
     oneDark,
     // Match the window background instead of oneDark's.
