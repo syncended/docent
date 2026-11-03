@@ -88,6 +88,9 @@ Shortcuts are written with `Cmd` as on macOS; on Linux and Windows `Cmd` is `Ctr
   palette and returns focus to the previous window.
 - The palette reopens with the last query and tab; the query is selected so
   a new one can be typed right away.
+- The palette can be moved by dragging the search bar. Until Docent restarts
+  it reopens at the moved position, relative to the screen it opens on;
+  results and the viewer grow from there and stay within the screen.
 
 ### Palette and search modes
 
@@ -303,3 +306,6 @@ Decisions on open questions, with date and a short rationale.
 - **2026-11-03 — Windows in the MVP.** Docent is needed on Windows too, and
   the core already builds and passes its tests there with the zoekt fork.
   Linux stays after the MVP.
+- **2026-11-03 — Moved palette position lasts until restart.** Dragging the
+  palette is for adjusting it to the current setup; a restart returns it to
+  the default place, so there is nothing to reset in settings.

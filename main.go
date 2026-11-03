@@ -36,7 +36,17 @@ var (
 
 	// dialogOpen keeps the palette visible while a system dialog has focus.
 	dialogOpen atomic.Bool
+
+	// placed is where placeOn last put the palette; a different position
+	// means the user dragged it.
+	placed atomic.Pointer[application.Rect]
+	// moved is where the user dragged the palette to, kept until restart.
+	moved atomic.Pointer[anchor]
 )
+
+// anchor is the palette's horizontal center and top edge, as fractions of
+// a screen's work area, so it applies to any screen.
+type anchor struct{ x, y float64 }
 
 // layouts are the palette window sizes: a Spotlight-like search bar, the bar
 // with results below it, and the file viewer.
@@ -97,8 +107,11 @@ func run() error {
 		Width:     layouts["compact"].width,
 		Height:    layouts["compact"].height,
 		Frameless: true,
-		Hidden:    true,
-		URL:       "/",
+		// The size follows the layout (see layouts); without this Windows
+		// adds resize borders to the frameless window.
+		DisableResize: true,
+		Hidden:        true,
+		URL:           "/",
 		// Mac.WindowLevel takes precedence on macOS.
 		AlwaysOnTop: true,
 		Mac: application.MacWindow{
@@ -172,6 +185,7 @@ func showSettings() {
 }
 
 func hidePalette() {
+	rememberMove()
 	palette.Hide()
 }
 
@@ -219,6 +233,7 @@ func setLayout(name string) {
 	if _, ok := layouts[name]; !ok {
 		return
 	}
+	rememberMove()
 	layout.Store(name)
 	screen, _ := palette.GetScreen()
 	placeOn(screen)
@@ -246,9 +261,9 @@ func targetScreen() *application.Screen {
 	return app.Screen.GetPrimary()
 }
 
-// placeOn sizes the palette for the current layout on screen, centered
-// horizontally with its top edge in the upper part of the screen, as
-// Spotlight does.
+// placeOn sizes the palette for the current layout on screen. By default it
+// is centered horizontally with its top edge paletteTop percent down the
+// screen, as Spotlight does; once dragged, it keeps the dragged position.
 func placeOn(screen *application.Screen) {
 	name, _ := layout.Load().(string)
 	size, ok := layouts[name]
@@ -262,10 +277,43 @@ func placeOn(screen *application.Screen) {
 	}
 	area := screen.WorkArea
 	x := area.X + (area.Width-size.width)/2
-	y := area.Y + area.Height*18/100
-	y = min(y, area.Y+area.Height-size.height-20)
-	palette.SetBounds(application.Rect{X: x, Y: max(y, area.Y), Width: size.width, Height: size.height})
+	y := area.Y + area.Height*paletteTop/100
+	if a := moved.Load(); a != nil {
+		x = area.X + int(a.x*float64(area.Width)) - size.width/2
+		y = area.Y + int(a.y*float64(area.Height))
+	}
+	x = max(min(x, area.X+area.Width-size.width), area.X)
+	y = max(min(y, area.Y+area.Height-size.height-20), area.Y)
+	r := application.Rect{X: x, Y: y, Width: size.width, Height: size.height}
+	placed.Store(&r)
+	palette.SetBounds(r)
 }
+
+// rememberMove records the palette's position if the user dragged it away
+// from where placeOn put it.
+func rememberMove() {
+	last := placed.Load()
+	if last == nil || !palette.IsVisible() {
+		return
+	}
+	b := palette.Bounds()
+	// DIP rounding on scaled screens can shift the window by a pixel.
+	if abs(b.X-last.X) <= 2 && abs(b.Y-last.Y) <= 2 {
+		return
+	}
+	screen, _ := palette.GetScreen()
+	if screen == nil || screen.WorkArea.Width == 0 || screen.WorkArea.Height == 0 {
+		return
+	}
+	area := screen.WorkArea
+	moved.Store(&anchor{
+		x: float64(b.X+b.Width/2-area.X) / float64(area.Width),
+		y: float64(b.Y-area.Y) / float64(area.Height),
+	})
+	placed.Store(&b)
+}
+
+func abs(n int) int { return max(n, -n) }
 
 // reindex updates the index in the background, reporting progress to the UI.
 // A request made while indexing runs another pass when the current one ends.

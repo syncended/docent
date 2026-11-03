@@ -53,6 +53,15 @@ body,
   border-radius: 16px;
 }
 
+/* The magnifier is the handle for dragging the palette: the query field
+   takes the rest of the bar and does not drag. */
+.search-icon {
+  flex: none;
+  margin-right: 10px;
+  color: var(--text-dim);
+  cursor: grab;
+}
+
 .query {
   --wails-draggable: no-drag;
   width: 100%;

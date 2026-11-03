@@ -7,6 +7,10 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
+// paletteTop is where the palette's top edge sits, in percent of the
+// screen height.
+const paletteTop = 25
+
 // Windows reports physical pixels; the palette is placed in DIPs.
 
 // mousePoint returns the mouse pointer position.

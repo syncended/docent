@@ -41,6 +41,10 @@ static int focusedWindowCenter(double *x, double *y) {
 */
 import "C"
 
+// paletteTop is where the palette's top edge sits, in percent of the
+// screen height.
+const paletteTop = 18
+
 // mousePoint returns the mouse pointer position.
 func mousePoint() (x, y int, ok bool) {
 	var cx, cy C.double

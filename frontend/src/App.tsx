@@ -315,6 +315,7 @@ export function App() {
       {mode === "palette" ? (
         <>
           <div className="search drag">
+            <Search className="search-icon" size={20} strokeWidth={2} aria-hidden />
             <input
               ref={input}
               className="query"
