@@ -424,13 +424,15 @@ export function App() {
             )}
             {tab === "text" && !list && !noRoots && (
               <>
-                <button className={regex ? "tab active" : "tab"} onClick={() => (setRegex(!regex), focusInput())}>
+                <button className={regex ? "tab icon active" : "tab icon"} title={`Regex (${altLabel}R)`} onClick={() => (setRegex(!regex), focusInput())}>
                   <Regex size={14} strokeWidth={2} />
-                  Regex
                 </button>
-                <button className={matchCase ? "tab active" : "tab"} onClick={() => (setMatchCase(!matchCase), focusInput())}>
+                <button
+                  className={matchCase ? "tab icon active" : "tab icon"}
+                  title={`Match case (${altLabel}C)`}
+                  onClick={() => (setMatchCase(!matchCase), focusInput())}
+                >
                   <CaseSensitive size={14} strokeWidth={2} />
-                  Match case
                 </button>
               </>
             )}
@@ -638,7 +640,8 @@ function statusLine(status: Status | null, progress: Progress | null): string {
   if (status.indexing) return "Indexing…";
   const files = status.roots.reduce((n, r) => n + r.files, 0);
   const symbols = status.roots.reduce((n, r) => n + r.symbols, 0);
-  return `${status.roots.length} roots · ${files.toLocaleString()} files · ${symbols.toLocaleString()} symbols`;
+  const roots = status.roots.length === 1 ? "1 root" : `${status.roots.length} roots`;
+  return `${roots} · ${files.toLocaleString()} files · ${symbols.toLocaleString()} symbols`;
 }
 
 function RowView(props: { row: Row; selected: boolean; onSelect: () => void; onOpen: () => void }) {

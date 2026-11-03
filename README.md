@@ -7,7 +7,26 @@ top of the active window. The palette finds symbols, types, proto definitions,
 files and text — or searches by meaning through an agent — shows results as
 code snippets, and opens a lightweight viewer with quick editing.
 
+![Search palette](docs/screenshots/palette.png)
+
+Opening a result shows the file next to the search and the project tree:
+
+![Viewer with search results and project tree](docs/screenshots/viewer.png)
+
 The specification is [`DESIGN.md`](DESIGN.md).
+
+## Installing
+
+Download the latest build from
+[Releases](https://github.com/syncended/docent/releases): the installer or
+the zip for Windows, the DMG for macOS (Apple silicon and Intel).
+
+Builds are not code-signed yet, so the first launch needs one extra step:
+
+- **Windows:** SmartScreen shows "Windows protected your PC" — choose
+  "More info", then "Run anyway".
+- **macOS:** Gatekeeper refuses to open the app — right-click it and choose
+  "Open", or run `xattr -dr com.apple.quarantine /Applications/docent.app`.
 
 ## Building
 
@@ -40,3 +59,15 @@ and search. Settings (`Cmd+,`, `Ctrl+,` on Windows) configure code roots and
 the agent provider; API keys are kept in the system credential store.
 
 Tests: `go test ./...`
+
+## Releasing
+
+Push a version tag; CI builds Windows and macOS packages and publishes a
+GitHub Release (a tag with a suffix, like `v0.2.0-rc.1`, is a pre-release):
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+`build/set-version.sh` writes the tag's version into the build assets.

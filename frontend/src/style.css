@@ -78,6 +78,8 @@ body,
 
 .tabs {
   flex: none;
+  min-width: 0;
+  overflow: hidden;
   height: 30px;
   display: flex;
   gap: 6px;
@@ -375,6 +377,11 @@ mark {
   }
 }
 
+.tab.icon {
+  padding: 0 9px;
+}
+
+.tab.icon svg,
 .tab.gear svg {
   margin-right: 0;
 }
