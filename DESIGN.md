@@ -268,6 +268,10 @@ Only what is critical to the product.
   re-indexing replaces shards while they are being searched. On Windows the
   index therefore occupies RAM; the fork is dropped once upstream supports
   Windows.
+- **Distribution: GitHub Releases.** A version tag builds the release in
+  CI: an NSIS installer and a portable zip for Windows, a universal
+  (arm64 + amd64) DMG for macOS. Builds are not code-signed yet, so Windows
+  SmartScreen and macOS Gatekeeper warn on first launch.
 - **Agents:**
   - The built-in agent is Docent's own tool-calling loop over provider APIs
     (Anthropic Messages API, OpenAI-compatible Chat Completions), calling core
@@ -351,3 +355,7 @@ Decisions on open questions, with date and a short rationale.
   starts over, the field below the answer continues, so there is no hidden
   mode or extra key to remember. Earlier turns go to the agent as plain
   questions and answers; their citations carry the places already found.
+- **2026-11-03 — Unsigned releases for now.** Signing costs money and setup
+  (Apple Developer ID and notarization; a Windows code signing service) that
+  is not worth it before Docent has users beyond its authors. Signing is
+  added to the release workflow when it is.

@@ -8,10 +8,9 @@
 			"FileVersion": "0.1.0",
 			"ProductVersion": "0.1.0",
 			"CompanyName": "syncended",
-			"FileDescription": "A app application",
+			"FileDescription": "Docent",
 			"LegalCopyright": "© 2026, syncended",
-			"ProductName": "Docent",
-			"Comments": "This is a comment"
+			"ProductName": "Docent"
 		}
 	}
 }
