@@ -81,3 +81,5 @@ require (
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/sourcegraph/zoekt => github.com/syncended/zoekt v0.0.0-20261103155742-346982bd79a7
