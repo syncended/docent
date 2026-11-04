@@ -9,6 +9,7 @@ import (
 	"log"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -43,6 +44,9 @@ var (
 	placed atomic.Pointer[application.Rect]
 	// moved is where the user dragged the palette to, kept until restart.
 	moved atomic.Pointer[anchor]
+	// pending is the screen the palette is shown on once the frontend has
+	// painted (see showSettings); nil when it is in place.
+	pending atomic.Pointer[application.Screen]
 )
 
 // anchor is the palette's horizontal center and top edge, as fractions of
@@ -102,6 +106,12 @@ func run() error {
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyAccessory,
 		},
+		// A second launch brings the running Docent's overview window
+		// forward (DESIGN.md, Overview window).
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID:               "dev.syncended.docent",
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) { showOverview() },
+		},
 	})
 
 	// A non-activating floating panel, like Spotlight: it takes keyboard
@@ -149,10 +159,17 @@ func run() error {
 		}
 	})
 
+	newOverview()
+	// Launching Docent opens the overview window; clicking its Dock icon
+	// brings it back.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) { showOverview() })
+	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) { showOverview() })
+
 	tray := app.SystemTray.New()
 	tray.SetLabel("⌕")
 	tray.SetTooltip("Docent")
 	menu := app.NewMenu()
+	menu.Add("Open Docent").OnClick(func(*application.Context) { showOverview() })
 	menu.Add("Search…").OnClick(func(*application.Context) { showPalette() })
 	menu.Add("Settings…").OnClick(func(*application.Context) { showSettings() })
 	menu.Add("Reindex").OnClick(func(*application.Context) { go reindex() })
@@ -182,37 +199,79 @@ func togglePalette() {
 	hidePalette()
 }
 
+// showPalette summons the palette. Over the focused overview window its
+// results open there; palette:shown tells the frontend which.
 func showPalette() {
-	placeOn(targetScreen())
-	palette.Show()
-	palette.Focus()
-	app.Event.Emit("palette:shown", "")
+	over := overviewFocused()
+	overPalette.Store(over)
+	target := ""
+	if over {
+		target = "overview"
+	}
+	showOffScreen("palette:shown", target)
 }
 
+// showSettings shows the palette on the settings screen, at the settings
+// size (the frontend's "results" layout).
 func showSettings() {
-	showPalette()
-	app.Event.Emit("settings:open", "")
+	overPalette.Store(overviewFocused())
+	layout.Store("results")
+	showOffScreen("settings:open", "")
+}
+
+// showOffScreen shows the palette and emits event to the frontend. A hidden
+// webview does not paint, so shown in place the palette would first flash
+// the last frame it painted before it was hidden. It is shown off screen
+// and moved into place once the frontend has painted (presentPending), or
+// after a timeout.
+func showOffScreen(event, data string) {
+	screen := targetScreen()
+	if screen == nil {
+		screen = app.Screen.GetPrimary()
+	}
+	pending.Store(screen)
+	app.Event.Emit(event, data)
+	name, _ := layout.Load().(string)
+	size, ok := layouts[name]
+	if !ok {
+		size = layouts["compact"]
+	}
+	palette.SetBounds(application.Rect{X: -20000, Y: -20000, Width: size.width, Height: size.height})
+	palette.Show()
+	time.AfterFunc(400*time.Millisecond, presentPending)
+}
+
+// presentPending moves the palette shown off screen into place.
+func presentPending() {
+	if screen := pending.Swap(nil); screen != nil {
+		placeOn(screen)
+		palette.Focus()
+	}
 }
 
 func hidePalette() {
 	rememberMove()
 	palette.Hide()
+	if overPalette.Swap(false) && overview.IsVisible() {
+		overview.Focus()
+	}
 }
 
 // pickFolder asks for a directory with the system dialog, attached to the
-// palette. It returns "" if the user cancels.
-func pickFolder() (string, error) {
+// window w (the palette or the overview window). It returns "" if the user
+// cancels.
+func pickFolder(w *application.WebviewWindow) (string, error) {
 	dialogOpen.Store(true)
 	defer func() {
 		dialogOpen.Store(false)
-		palette.Focus()
+		w.Focus()
 	}()
 	return app.Dialog.OpenFile().
 		SetTitle("Add code root").
 		CanChooseFiles(false).
 		CanChooseDirectories(true).
 		CanCreateDirectories(false).
-		AttachToWindow(palette).
+		AttachToWindow(w).
 		PromptForSingleSelection()
 }
 
@@ -245,6 +304,10 @@ func setLayout(name string) {
 	}
 	rememberMove()
 	layout.Store(name)
+	// Off screen until painted: presentPending places it.
+	if pending.Load() != nil {
+		return
+	}
 	screen, _ := palette.GetScreen()
 	placeOn(screen)
 }
@@ -305,7 +368,7 @@ func placeOn(screen *application.Screen) {
 // from where placeOn put it.
 func rememberMove() {
 	last := placed.Load()
-	if last == nil || !palette.IsVisible() {
+	if last == nil || !palette.IsVisible() || pending.Load() != nil {
 		return
 	}
 	b := palette.Bounds()

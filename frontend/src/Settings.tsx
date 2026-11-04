@@ -89,7 +89,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
     if (e.key === "Escape") {
       e.preventDefault();
       props.onClose();
-    } else if (cmd(e) && e.key === "s") {
+    } else if (cmd(e) && e.code === "KeyS") {
       e.preventDefault();
       save();
     }

@@ -28,6 +28,11 @@ palette in the spirit of Spotlight / Search Everywhere appears on top of
 whatever window is active. Results are shown as code snippets; any of them
 opens in a lightweight viewer where the file can be edited if needed.
 
+For looking around a project rather than finding one thing, Docent also has
+an **overview window**: a regular, resizable window with the project tree and
+files in editor tabs, opened when Docent is launched. Closing it leaves Docent
+in the background with the palette.
+
 Docent is a notepad with great search, not a development environment.
 
 ## Principles
@@ -56,10 +61,18 @@ Docent is a notepad with great search, not a development environment.
 - **Quick edit.** Open a file from the results or by path, edit, save, close.
 - **Walk the code.** From the viewer — go to definition, find usages, move
   back and forward through navigation history.
+- **Survey a project.** Launch Docent (or "Open Docent" in the tray) → the
+  overview window opens → expand the tree, open a few files in tabs, follow
+  definitions; the hotkey over the window searches and opens results in it.
+- **From a search to the overview.** Found something in the palette and want
+  to look around it → `Cmd+Enter` → it opens as a tab in the overview window.
 
 ## Features
 
 Shortcuts are written with `Cmd` as on macOS; on Linux and Windows `Cmd` is `Ctrl`.
+Shortcuts are bound to physical keys, so they work in any keyboard layout
+(`Cmd+W` is the same key with a Russian layout on). Characters typed into the
+search bar, such as the tab shortcuts `#` and `@`, are taken as typed.
 
 ### Code sources
 
@@ -88,6 +101,9 @@ Shortcuts are written with `Cmd` as on macOS; on Linux and Windows `Cmd` is `Ctr
   palette and returns focus to the previous window.
 - The palette reopens with the last query and tab; the query is selected so
   a new one can be typed right away.
+- Summoned while the overview window has focus, the palette opens results as
+  tabs in the overview window instead of its own viewer (see
+  [Overview window](#overview-window)).
 - The palette can be moved by dragging the search bar. Until Docent restarts
   it reopens at the moved position, relative to the screen it opens on;
   results and the viewer grow from there and stay within the screen.
@@ -146,8 +162,8 @@ For both kinds:
 
 ### Settings
 
-Opened with `Cmd+,` from the palette, from the menu bar (tray) icon or the gear next
-to the palette tabs; shown in the palette window.
+Opened with `Cmd+,` from the palette or the overview window, from the menu bar
+(tray) icon or the gear next to the palette tabs; shown in the palette window.
 
 - **Code roots:** add a folder with the system folder picker or by typing a
   path, limit it to subdirectories, remove it. Saving re-indexes in the
@@ -160,12 +176,16 @@ to the palette tabs; shown in the palette window.
 - Shows where the config file lives, for those who prefer editing it by hand.
 - First run: with no roots, the palette stays a compact bar and offers
   "Add folder…" (system folder picker, then indexing starts) and Settings.
-- `Cmd+S` saves, `Esc` returns to the palette without saving.
+- `Cmd+S` saves, `Esc` closes without saving. Both return to where settings
+  were opened from: the palette, or — when opened from the overview window
+  or the tray — that window or application, hiding the palette.
 
 ### Results
 
 - Each result is a highlighted code snippet with file path and line, not just a name.
 - Results are navigated with arrow keys; the selected result is previewed immediately.
+- `Enter` opens a result in the viewer; `Cmd+Enter` opens it as a tab in the
+  overview window and hides the palette.
 - In agent mode, findings appear as the search progresses; the final answer
   links to specific places in the code.
 
@@ -182,10 +202,21 @@ to the palette tabs; shown in the palette window.
   `Cmd+1` shows the tree and moves focus to it, or hides it when it has focus;
   in the tree the arrow keys move and expand or collapse, `Enter` opens and
   `Esc` returns to the code. Can be hidden.
+- **Speed search in the tree**, as in IntelliJ IDEA: typing while the tree
+  has focus searches the names of visible files and folders. The query shows
+  over the tree, matches are highlighted and the selection jumps to the
+  first one; `Up` / `Down` move between matches, `Backspace` edits the
+  query, `Enter` opens and `Esc` clears the search.
 - The path above the code is a breadcrumb; choosing a folder in it reveals
   that folder in the tree.
 - Syntax highlighting, go to line, find in file.
-- Go to definition and find usages; back and forward navigation history.
+- Go to definition and find usages, as in IntelliJ IDEA:
+  - `Cmd+click` or `Cmd+B` on a symbol goes to its definition; on the
+    definition itself it finds its usages instead.
+  - `Alt+F7` finds usages of the symbol at the cursor.
+  - Right-clicking a symbol offers both, with their shortcuts.
+  - Several definitions, or usages, are shown as a list to choose from.
+- Back and forward navigation history.
 - `Esc` or `Cmd+W` closes the file and returns to the palette, like closing
   a tab. With unsaved edits the first press reminds to save, a second one
   discards them.
@@ -194,10 +225,63 @@ to the palette tabs; shown in the palette window.
 - The hotkey pressed in the viewer goes to the palette, like `Esc`, with the
   query selected; pressed again there, it hides Docent. With unsaved edits it
   only reminds to save or discard them.
+- `Cmd+Enter` (or the button in the viewer header) moves the open file to a
+  tab in the overview window, unsaved edits included, and hides the palette.
+
+### Overview window
+
+An IDE-style window for looking around a project: the project tree and code in
+tabs. Unlike the palette, it is an ordinary application window: it does not
+hide when focus moves elsewhere and can be resized, maximized or made full
+screen.
+
+- Looks like the palette: tab pills and floating bubbles — the tree, the
+  code, the results panel — over a backdrop, rather than a classic IDE frame.
+  The tab bar is the title bar: the window is dragged by it and maximized by
+  double-clicking it. On macOS the system window buttons sit in it; on
+  Windows and Linux the window has no system frame and Docent draws its own
+  minimize, maximize and close buttons.
+
+- **Opening.** Launching Docent opens the overview window; launching it again
+  while it runs brings the window forward. "Open Docent" in the tray menu does
+  the same. `Cmd+Enter` in the palette or viewer opens a file in it.
+- **Closing** the window leaves Docent running in the background; the hotkey
+  still summons the palette. Until Docent restarts, the window reopens with
+  the same tabs, tree state, size and position.
+- While the window is open, Docent shows in the Dock and `Cmd+Tab` on macOS
+  and on the taskbar on Windows; with the window closed it lives only in the
+  menu bar (tray).
+- **Project tree** on the left: every code root as a top-level folder.
+  Folders expand and collapse; choosing a file opens it in a tab. The tree
+  follows the active tab, expanded to its file. Keys as in the viewer's tree:
+  `Cmd+1` shows the tree and focuses it, or hides it when it has focus; arrow
+  keys move and expand or collapse, `Enter` opens, `Esc` returns to the code;
+  typing searches visible names (speed search).
+- **Tabs.** A file opens in a new tab, or switches to its tab if it is
+  already open. `Ctrl+Tab` / `Ctrl+Shift+Tab` switch tabs; `Cmd+W` closes the
+  active tab, and with unsaved edits the first press reminds to save, a
+  second one discards them. Clicking a tab's close button with unsaved edits
+  works the same way.
+- **Code** as in the viewer: syntax highlighting, go to line, find in file,
+  go to definition and find usages with the same keys and clicks,
+  editing and saving, a breadcrumb path that reveals folders in the tree.
+- **Go to definition and find usages stay in the window:** a single
+  definition opens in a tab; several definitions, or usages, are listed in a
+  results panel below the code. Clicking a result opens it;
+  `Cmd+Alt+Down` / `Cmd+Alt+Up` go to the next / previous result. `Esc` in the
+  panel or its close button hides it.
+- **Search** is the palette: the hotkey pressed over the window summons it,
+  and results chosen there open as tabs in the window (agent answers'
+  links included). `Esc` returns to the window.
+- `Cmd+,` or the gear in the tab bar opens settings in the palette.
+- With no code roots the window offers "Add folder…" and Settings, as the
+  palette does on first run.
+- Closing the window with unsaved edits in any tab asks to save, discard or
+  cancel.
 
 ### Editing
 
-- A file open in the viewer can be edited and saved.
+- A file open in the viewer or the overview window can be edited and saved.
 - Basic text editing only: no autocompletion, refactoring or diagnostics.
 
 ## Milestones
@@ -220,6 +304,8 @@ In scope:
   characters; results as snippets with preview.
 - Viewer: syntax highlighting, go to line, find in file, go to definition and
   find usages, basic editing and saving, project tree.
+- Overview window: opened on launch, project tree of all roots, editor tabs,
+  definitions and usages in its results panel, palette results opening in it.
 - Built-in agent: Anthropic and OpenAI-compatible providers, one configured
   agent, API key in the OS credential store.
 - Settings screen for code roots and the agent.
@@ -229,6 +315,8 @@ Out of scope (after MVP):
 - External agents over ACP; exposing search tools over MCP; several agents.
 - Background index updates on file changes.
 - Navigation history in the viewer.
+- Navigating into library sources: definitions and usages outside the code
+  roots (dependencies, the standard library).
 - Double `Shift` hotkey.
 - Linux build (code stays cross-platform; platform-specific parts are isolated).
 - Changing the hotkey from the UI.
@@ -268,6 +356,17 @@ Only what is critical to the product.
   re-indexing replaces shards while they are being searched. On Windows the
   index therefore occupies RAM; the fork is dropped once upstream supports
   Windows.
+- **Frameless overview window outside macOS.** Keeps the backdrop and
+  bubbles up to the window's top edge on every platform; macOS gets the same
+  with a hidden title bar and the system buttons. The cost on Windows 11 is
+  the Snap Layouts flyout on the maximize button; snapping by dragging
+  still works.
+- **Single instance.** A second launch does not start another Docent; it
+  brings the running one's overview window forward.
+- **macOS activation policy follows the overview window.** Docent runs as an
+  accessory app (no Dock icon) so the palette never activates it; while the
+  overview window is open it switches to a regular app, so the window gets a
+  Dock icon and `Cmd+Tab`, and back when the window closes.
 - **Distribution: GitHub Releases.** A version tag builds the release in
   CI: an NSIS installer and a portable zip for Windows, a universal
   (arm64 + amd64) DMG for macOS. Builds are not code-signed yet, so Windows
@@ -359,3 +458,25 @@ Decisions on open questions, with date and a short rationale.
   (Apple Developer ID and notarization; a Windows code signing service) that
   is not worth it before Docent has users beyond its authors. Signing is
   added to the release workflow when it is.
+- **2026-11-04 — Overview window, separate from the palette.** Revisits the
+  2026-11-03 choice of bubbles in one window: the palette covers "find and
+  look", but surveying a project — walking the tree, keeping several files
+  open — needs a window that stays put and can take the whole screen. The
+  palette and its viewer stay as they are; the overview is a second,
+  ordinary window rather than a mode of the palette, so the palette keeps
+  hiding on focus loss and returning focus. Editor tabs, since surveying
+  means keeping several files at hand; all roots in one tree, like modules of
+  one project; definitions and usages stay inside the window instead of
+  handing off to the palette.
+- **2026-11-04 — Launching opens the overview, the palette lives in the
+  background.** A launch by hand is a request to see Docent, so it opens the
+  window; closing it keeps the hotkey working. The hotkey over the overview
+  window searches into it, like Search Everywhere in an IDE, so the window
+  needs no search of its own; `Cmd+Enter` is the way from the palette
+  anywhere else. Considered: opening only from the tray (hard to discover)
+  and a second global hotkey (one more binding to take from other apps).
+- **2026-11-04 — Go to definition on a definition finds usages.** As in
+  IntelliJ IDEA, one gesture (`Cmd+click`, `Cmd+B`) covers both directions:
+  from a usage it is the way to the declaration, and on the declaration
+  there is nowhere else to go, so the useful answer is where it is used.
+  A context menu makes both discoverable without knowing the shortcuts.

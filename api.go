@@ -31,7 +31,11 @@ func apiMiddleware(next http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/usages", handleUsages)
 	mux.HandleFunc("POST /api/hide", handleHide)
 	mux.HandleFunc("POST /api/layout", handleLayout)
+	mux.HandleFunc("POST /api/present", handlePresent)
 	mux.HandleFunc("POST /api/reindex", handleReindex)
+	mux.HandleFunc("POST /api/overview/open", handleOverviewOpen)
+	mux.HandleFunc("POST /api/overview/hide", handleOverviewHide)
+	mux.HandleFunc("POST /api/settings/open", handleSettingsOpen)
 	mux.HandleFunc("GET /api/settings", handleGetSettings)
 	mux.HandleFunc("PUT /api/settings", handlePutSettings)
 	mux.HandleFunc("POST /api/pick-folder", handlePickFolder)
@@ -184,6 +188,31 @@ func handleHide(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+func handleOverviewOpen(w http.ResponseWriter, r *http.Request) {
+	var f overviewFile
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil || f.Hit.Path == "" {
+		writeError(w, http.StatusBadRequest, errString("hit is required"))
+		return
+	}
+	openInOverview(f)
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handleOverviewHide(w http.ResponseWriter, r *http.Request) {
+	hideOverview()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handleSettingsOpen(w http.ResponseWriter, r *http.Request) {
+	showSettings()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handlePresent(w http.ResponseWriter, r *http.Request) {
+	presentPending()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
 func handleLayout(w http.ResponseWriter, r *http.Request) {
 	setLayout(r.URL.Query().Get("name"))
 	writeJSON(w, map[string]bool{"ok": true})
@@ -269,7 +298,11 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePickFolder(w http.ResponseWriter, r *http.Request) {
-	path, err := pickFolder()
+	parent := palette
+	if r.URL.Query().Get("window") == "overview" {
+		parent = overview
+	}
+	path, err := pickFolder(parent)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

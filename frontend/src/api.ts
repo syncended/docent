@@ -128,7 +128,10 @@ export const getSettings = () => request<Settings>("GET", "/api/settings", {});
 
 export const putSettings = (s: Settings) => request<Settings>("PUT", "/api/settings", {}, JSON.stringify(s));
 
-export const pickFolder = () => request<{ path: string }>("POST", "/api/pick-folder", {}).then((r) => r.path);
+// pickFolder asks for a folder with the system dialog attached to the
+// calling window; "" if cancelled.
+export const pickFolder = (window: "palette" | "overview" = "palette") =>
+  request<{ path: string }>("POST", "/api/pick-folder", { window }).then((r) => r.path);
 
 export interface AgentEvent {
   kind: "turn" | "thinking" | "call" | "step" | "text" | "done" | "error";
@@ -158,6 +161,19 @@ export interface Span {
 
 export const highlight = (path: string, text: string) =>
   request<{ spans: Span[] }>("POST", "/api/highlight", { path }, text).then((r) => r.spans ?? []);
+
+// openInOverview opens a file as a tab in the overview window, with unsaved
+// text if given, and hides the palette.
+export const openInOverview = (hit: Hit, content?: string) =>
+  request<{ ok: boolean }>("POST", "/api/overview/open", {}, JSON.stringify({ hit, content }));
+
+export const hideOverview = () => request<{ ok: boolean }>("POST", "/api/overview/hide", {});
+
+export const openSettings = () => request<{ ok: boolean }>("POST", "/api/settings/open", {});
+
+// present moves the palette, shown off screen, into place once the
+// frontend has painted (main.go, showSettings).
+export const present = () => request<{ ok: boolean }>("POST", "/api/present", {});
 
 export const hide = () => request<{ ok: boolean }>("POST", "/api/hide", {});
 

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
-import { ArrowLeft, CaseSensitive, ChevronDown, ChevronRight, File, FolderTree, PanelLeftClose, PanelLeftOpen, FolderPlus, LoaderCircle, Regex, Search, Settings as SettingsIcon, Shapes, Sparkles, SquareFunction, TextSearch, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowLeft, CaseSensitive, ChevronDown, ChevronRight, File, FolderTree, PanelLeftClose, PanelLeftOpen, FolderPlus, LoaderCircle, Regex, Search, Settings as SettingsIcon, Shapes, Sparkles, SquareFunction, TextSearch, type LucideIcon } from "lucide-react";
 import * as api from "./api";
 import type { Hit, Progress, Status, Tab } from "./api";
-import { Code } from "./Code";
+import { Code, type At } from "./Code";
+import { definitionOrUsages, usages, type Where } from "./navigate";
 import { Settings } from "./Settings";
 import { Tree } from "./Tree";
+import { crumbs, RowView, sameHit, type Row } from "./Rows";
 import { AgentAnswer, applyEvent, followUp, newRun, stepLabel, type Run } from "./Agent";
 import { altLabel, cmd, hotkeyLabel, isMac, modLabel } from "./keys";
 
@@ -18,8 +20,6 @@ const tabs: { tab: Tab; label: string; icon: LucideIcon; shortcut?: string }[] =
   { tab: "text", label: "Text", icon: TextSearch },
   { tab: "agent", label: "Agent", icon: Sparkles, shortcut: "?" },
 ];
-
-type Row = { type: "header"; label: string } | { type: "note"; text: string } | { type: "hit"; hit: Hit } | { type: "agent"; query: string };
 
 // A list that replaces search results, e.g. usages opened from the viewer.
 type List = { title: string; hits: Hit[] };
@@ -52,13 +52,22 @@ export function App() {
   const followUpField = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [treeOpen, setTreeOpen] = useState(true);
-  const [treeReveal, setTreeReveal] = useState<{ path: string; n: number } | null>(null);
+  const [treeReveal, setTreeReveal] = useState<{ root: string; path: string; n: number } | null>(null);
   const [treeFocus, setTreeFocus] = useState(0);
   const [codeFocus, setCodeFocus] = useState(0);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  // overOverview is set while the palette is summoned over the overview
+  // window: results then open there (DESIGN.md, Summoning).
+  const overOverview = useRef(false);
+  // settingsReturn is set when settings were opened from outside the palette
+  // (the overview window, the tray): closing them hides Docent and leaves
+  // the palette as it was. Null when opened from the palette itself.
+  const settingsReturn = useRef<"palette" | "viewer" | null>(null);
+  // viewerText returns the viewer's current text, unsaved edits included.
+  const viewerText = useRef<(() => string) | null>(null);
   // stepResult moves the viewer to the next or previous result; the global
   // key handler, registered once, calls the latest version.
   const stepResult = useRef<(dir: 1 | -1) => void>(() => {});
@@ -68,6 +77,8 @@ export function App() {
   const toSearch = useRef<() => void>(() => {});
   // closeFile handles Cmd+W: back to search from the viewer, hide otherwise.
   const closeFile = useRef<() => void>(() => {});
+  // toOverview handles Cmd+Enter in the viewer.
+  const toOverview = useRef<() => boolean>(() => false);
 
   const focusInput = () => setTimeout(() => (input.current?.focus(), input.current?.select()), 0);
 
@@ -75,13 +86,23 @@ export function App() {
     api.getStatus().then(setStatus);
     const offs = [
       // Docent reopens as it was hidden: the viewer stays (DESIGN.md, Viewer).
-      Events.On("palette:shown", () => {
+      // The palette is off screen until painted (main.go, showOffScreen).
+      Events.On("palette:shown", (e) => {
+        afterPaint(api.present);
+        overOverview.current = e.data === "overview";
+        settingsReturn.current = null;
         if (modeRef.current === "viewer") return setCodeFocus((n) => n + 1);
         setMode("palette");
         focusInput();
       }),
       Events.On("palette:search", () => toSearch.current()),
-      Events.On("settings:open", () => setMode("settings")),
+      // Sent instead of palette:shown when settings are opened from outside.
+      Events.On("settings:open", () => {
+        overOverview.current = false;
+        settingsReturn.current = modeRef.current === "settings" ? (settingsReturn.current ?? "palette") : modeRef.current;
+        setMode("settings");
+        afterPaint(api.present);
+      }),
       Events.On("agent:event", (e) => {
         const { run: id, event } = e.data as { run: number; event: api.AgentEvent };
         if (id === runId.current) setRun((r) => r && applyEvent(r, event));
@@ -94,7 +115,8 @@ export function App() {
       }),
     ];
     // Cmd+W closes the file in the viewer and hides the window elsewhere.
-    // Cmd+, opens settings.
+    // Cmd+, opens settings. Keys are matched by physical key (e.code), so
+    // shortcuts work in any keyboard layout.
     const onKey = (e: KeyboardEvent) => {
       if (!cmd(e) || e.shiftKey) return;
       if (e.altKey) {
@@ -104,13 +126,16 @@ export function App() {
         }
         return;
       }
-      if (e.key === "1") {
+      if (e.key === "Enter") {
+        // Stop it here so the editor does not insert a line.
+        if (toOverview.current()) (e.preventDefault(), e.stopPropagation());
+      } else if (e.code === "Digit1") {
         e.preventDefault();
         toggleTree.current();
-      } else if (e.key.toLowerCase() === "w") {
+      } else if (e.code === "KeyW") {
         e.preventDefault();
         closeFile.current();
-      } else if (e.key === ",") {
+      } else if (e.code === "Comma") {
         e.preventDefault();
         if (!dirtyRef.current) setMode("settings");
       }
@@ -203,13 +228,25 @@ export function App() {
     }
   };
 
+  // openResult opens a chosen result: as a tab in the overview window when
+  // the palette is over it, in the viewer otherwise.
+  const openResult = (hit: Hit) => {
+    if (overOverview.current) openInOverview(hit);
+    else openHit(hit);
+  };
+
+  const openInOverview = (hit: Hit, content?: string) => {
+    overOverview.current = false;
+    api.openInOverview(hit, content).catch((e) => setNotice((e as Error).message));
+  };
+
   const openLocation = (root: string, path: string, line: number) => {
     const rootName = status?.roots.find((r) => r.id === root)?.name ?? root;
-    openHit({ tab: "files", root, rootName, path, line, column: 0, title: path.slice(path.lastIndexOf("/") + 1) });
+    openResult({ tab: "files", root, rootName, path, line, column: 0, title: path.slice(path.lastIndexOf("/") + 1) });
   };
 
   const activate = (row?: Row) => {
-    if (row?.type === "hit") openHit(row.hit);
+    if (row?.type === "hit") openResult(row.hit);
     if (row?.type === "agent") ask(row.query);
   };
 
@@ -243,6 +280,10 @@ export function App() {
         return;
       case "Enter":
         e.preventDefault();
+        if (cmd(e)) {
+          if (currentHit) openInOverview(currentHit);
+          return;
+        }
         // A new question starts the agent; on the same question Enter opens the selected finding.
         if (tab === "agent" && !list && run?.question !== query.trim()) ask(query);
         else activate(current);
@@ -284,6 +325,24 @@ export function App() {
 
   closeFile.current = () => (mode === "viewer" ? backToPalette() : api.hide());
 
+  // moveToOverview moves the open file, unsaved edits included, to a tab in
+  // the overview window, and closes it here.
+  const moveToOverview = () => {
+    if (!viewer) return;
+    const text = viewerText.current?.();
+    openInOverview(viewer.hit, dirty && text !== undefined ? text : undefined);
+    setDirty(false);
+    setDiscardArmed(false);
+    setNotice("");
+    setMode("palette");
+  };
+
+  toOverview.current = () => {
+    if (mode !== "viewer") return false;
+    moveToOverview();
+    return true;
+  };
+
   const save = async (text: string) => {
     if (!viewer) return;
     try {
@@ -294,6 +353,19 @@ export function App() {
     } catch (e) {
       setNotice((e as Error).message);
     }
+  };
+
+  // closeSettings returns to where settings were opened from.
+  const closeSettings = () => {
+    const back = settingsReturn.current;
+    settingsReturn.current = null;
+    if (back) {
+      api.hide();
+      setMode(back);
+      return;
+    }
+    setMode("palette");
+    focusInput();
   };
 
   // addFolder is the first-run path: pick a folder and start indexing it
@@ -338,8 +410,9 @@ export function App() {
   };
 
   const revealInTree = (path: string) => {
+    if (!viewer) return;
     setTreeOpen(true);
-    setTreeReveal((r) => ({ path, n: (r?.n ?? 0) + 1 }));
+    setTreeReveal((r) => ({ root: viewer.hit.root, path, n: (r?.n ?? 0) + 1 }));
     setTreeFocus((n) => n + 1);
   };
 
@@ -361,19 +434,21 @@ export function App() {
     focusInput();
   };
 
-  const goToDefinition = async (word: string) => {
+  const go = (where: Where) => {
+    if ("open" in where) openHit(where.open);
+    else if ("list" in where) showList(where.list.title, where.list.hits);
+    else setNotice(where.note);
+  };
+
+  const goToDefinition = async (word: string, at: At) => {
+    if (!viewer) return;
     if (dirty) return setNotice("Save or discard changes before leaving the file");
-    const hits = await api.definitions(word);
-    if (hits.length === 0) setNotice(`No definition found for ${word}`);
-    else if (hits.length === 1) openHit(hits[0]);
-    else showList(`Definitions of ${word}`, hits);
+    go(await definitionOrUsages(word, viewer.hit, at));
   };
 
   const findUsages = async (word: string) => {
     if (dirty) return setNotice("Save or discard changes before leaving the file");
-    const hits = await api.usages(word);
-    if (hits.length === 0) setNotice(`No usages found for ${word}`);
-    else showList(`Usages of ${word}`, hits);
+    go(await usages(word));
   };
 
   const footer = (
@@ -480,12 +555,11 @@ export function App() {
       ) : mode === "settings" ? (
         <div className="card">
           <Settings
-            onClose={() => (setMode("palette"), focusInput())}
+            onClose={closeSettings}
             onSaved={(message) => {
               setNotice(message);
               api.getStatus().then(setStatus);
-              setMode("palette");
-              focusInput();
+              closeSettings();
             }}
           />
         </div>
@@ -522,13 +596,12 @@ export function App() {
                 {treeOpen && (
                   <aside className="card">
                     <Tree
-                      root={viewer.hit.root}
-                      rootName={viewer.hit.rootName}
-                      path={viewer.hit.path}
+                      roots={[{ id: viewer.hit.root, name: viewer.hit.rootName }]}
+                      file={viewer.hit}
                       reveal={treeReveal}
                       version={indexVersion}
                       focus={treeFocus}
-                      onOpen={openFromTree}
+                      onOpen={(_, path) => openFromTree(path)}
                       onEscape={() => setCodeFocus((n) => n + 1)}
                     />
                   </aside>
@@ -542,6 +615,9 @@ export function App() {
                 </button>
                 <button className="icon-button" title={`${treeOpen ? "Hide" : "Show"} project tree (${modLabel}1)`} onClick={() => showTree(!treeOpen)}>
                   <FolderTree size={15} />
+                </button>
+                <button className="icon-button" title={`Open in overview window (${modLabel}${isMac ? "↩" : "Enter"})`} onClick={moveToOverview}>
+                  <AppWindow size={15} />
                 </button>
                 <span className="path">
                   {crumbs(viewer.hit.rootName, viewer.hit.path).map((c, i, all) =>
@@ -559,7 +635,8 @@ export function App() {
                   {dirty && <span className="dirty"> ●</span>}
                 </span>
                 <span className="hints">
-                  Esc back · {modLabel}1 tree · {isMac ? "⌘⌥" : "Ctrl+Alt+"}↓↑ next result · {modLabel}S save · {modLabel}B definition ·{" "}
+                  Esc back · {modLabel}
+                  {isMac ? "↩" : "Enter"} overview · {modLabel}1 tree · {isMac ? "⌘⌥" : "Ctrl+Alt+"}↓↑ next result · {modLabel}S save · {modLabel}B definition ·{" "}
                   {altLabel}F7 usages · {modLabel}L line · {modLabel}F find
                 </span>
               </header>
@@ -571,6 +648,7 @@ export function App() {
                   column={viewer.hit.column}
                   editable
                   focus={codeFocus}
+                  text={viewerText}
                   onDirty={(d) => (setDirty(d), setDiscardArmed(false))}
                   onSave={save}
                   onDefinition={goToDefinition}
@@ -600,17 +678,6 @@ async function search(tab: Tab, q: string, regex: boolean, matchCase: boolean, s
   return hits.map((hit) => ({ type: "hit", hit }));
 }
 
-// crumbs splits a file path into its folders, each with its path in the
-// root ("" for the root), and the file name last.
-function crumbs(rootName: string, path: string): { name: string; path: string }[] {
-  const parts = path.split("/");
-  return [{ name: rootName, path: "" }, ...parts.map((name, i) => ({ name, path: parts.slice(0, i + 1).join("/") }))];
-}
-
-function sameHit(a: Hit, b: Hit): boolean {
-  return a.root === b.root && a.path === b.path && a.line === b.line;
-}
-
 function sourcesSummary(run: Run): string {
   const steps = run.steps.filter((s) => "tool" in s);
   const places = new Set(steps.flatMap((s) => ("hits" in s ? s.hits.map((h) => `${h.root}/${h.path}:${h.line}`) : [])));
@@ -634,7 +701,12 @@ function placeholder(tab: Tab): string {
   }
 }
 
-function statusLine(status: Status | null, progress: Progress | null): string {
+// afterPaint calls f once the next frame is painted.
+function afterPaint(f: () => void) {
+  requestAnimationFrame(() => requestAnimationFrame(() => f()));
+}
+
+export function statusLine(status: Status | null, progress: Progress | null): string {
   if (progress) return `Indexing ${progress.root}: ${progress.done}/${progress.total}`;
   if (!status) return "";
   if (status.indexing) return "Indexing…";
@@ -642,86 +714,6 @@ function statusLine(status: Status | null, progress: Progress | null): string {
   const symbols = status.roots.reduce((n, r) => n + r.symbols, 0);
   const roots = status.roots.length === 1 ? "1 root" : `${status.roots.length} roots`;
   return `${roots} · ${files.toLocaleString()} files · ${symbols.toLocaleString()} symbols`;
-}
-
-function RowView(props: { row: Row; selected: boolean; onSelect: () => void; onOpen: () => void }) {
-  const { row } = props;
-  const el = useRef<HTMLDivElement>(null);
-  // Scroll only when the selection moves: rows re-render while an agent
-  // streams, and following the row on every render drags the list along.
-  useEffect(() => {
-    if (props.selected) el.current?.scrollIntoView({ block: "nearest" });
-  }, [props.selected]);
-  if (row.type === "header") return <div className="row-header">{row.label}</div>;
-  if (row.type === "note") return <div className="row-note">{row.text}</div>;
-  const cls = props.selected ? "row selected" : "row";
-  if (row.type === "agent") {
-    return (
-      <div className={cls} onClick={props.onSelect} onDoubleClick={props.onOpen}>
-        <div className="row-main">
-          <span className="kind agent">?</span>
-          <span className="title">Ask agent: {row.query}</span>
-        </div>
-      </div>
-    );
-  }
-  const { hit } = row;
-  return (
-    <div className={cls} onClick={props.onSelect} onDoubleClick={props.onOpen} ref={el}>
-      <div className="row-main">
-        <span className={`kind k-${hit.kind ?? hit.tab}`}>{kindLabel(hit.kind ?? hit.tab)}</span>
-        <span className="title">
-          <Highlighted text={hit.title} positions={hit.titleMatches} />
-        </span>
-        {hit.container && hit.tab !== "files" && hit.tab !== "text" && <span className="container">{hit.container}</span>}
-        <span className="location">{location(hit)}</span>
-      </div>
-      {hit.snippet && <SnippetLine hit={hit} />}
-    </div>
-  );
-}
-
-// location is shown at the right of a row: where the hit is, without
-// repeating the title.
-function location(hit: Hit): string {
-  const line = hit.line > 0 ? `:${hit.line}` : "";
-  const file = hit.path.slice(hit.path.lastIndexOf("/") + 1);
-  switch (hit.tab) {
-    case "files":
-      return `${hit.container ?? ""} · ${hit.rootName}`;
-    case "text":
-      return `${hit.path}${line} · ${hit.rootName}`;
-    default:
-      return `${file}${line} · ${hit.rootName}`;
-  }
-}
-
-function Highlighted(props: { text: string; positions?: number[] }) {
-  const marks = new Set(props.positions ?? []);
-  return (
-    <>
-      {Array.from(props.text).map((ch, i) => (marks.has(i) ? <mark key={i}>{ch}</mark> : ch))}
-    </>
-  );
-}
-
-// SnippetLine shows the matched line of a hit, with matches highlighted.
-function SnippetLine({ hit }: { hit: Hit }) {
-  const sn = hit.snippet!;
-  const idx = Math.max(0, Math.min(hit.line - sn.startLine, sn.lines.length - 1));
-  const line = sn.lines[idx] ?? "";
-  const indent = line.length - line.trimStart().length;
-  const matches = (sn.matches ?? []).filter((m) => m.line === idx);
-  const parts: JSX.Element[] = [];
-  let pos = indent;
-  matches.forEach((m, i) => {
-    const start = Math.max(m.start, pos);
-    if (start > pos) parts.push(<span key={`t${i}`}>{line.slice(pos, start)}</span>);
-    parts.push(<mark key={`m${i}`}>{line.slice(start, m.end)}</mark>);
-    pos = Math.max(pos, m.end);
-  });
-  parts.push(<span key="rest">{line.slice(pos)}</span>);
-  return <div className="snippet">{parts}</div>;
 }
 
 const fileCache = new Map<string, string>();
@@ -744,13 +736,4 @@ function Preview({ hit }: { hit: Hit }) {
   }, [key]);
   if (content === null) return null;
   return <Code path={hit.path} content={content} line={hit.line || 1} column={hit.column} editable={false} />;
-}
-
-function kindLabel(kind: string): string {
-  const labels: Record<string, string> = {
-    class: "C", interface: "I", enum: "E", struct: "S", union: "U", object: "O", message: "M", service: "Sv",
-    type: "T", namespace: "N", function: "ƒ", method: "m", rpc: "R", field: "f", property: "p",
-    constant: "c", variable: "v", enum_value: "e", files: "F", text: "T",
-  };
-  return labels[kind] ?? kind[0];
 }

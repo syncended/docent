@@ -707,6 +707,7 @@ mark {
 }
 
 .tree {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -714,13 +715,37 @@ mark {
   outline: none;
 }
 
-.tree-root {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  white-space: nowrap;
+/* Speed search query over the tree. */
+.tree-search {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  right: 8px;
+  max-width: calc(100% - 16px);
+  padding: 3px 10px;
+  border: 1px solid rgba(110, 168, 254, 0.55);
+  border-radius: 999px;
+  background: var(--bg-selected);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tree-search.none {
+  border-color: rgba(229, 72, 77, 0.7);
+  background: #3a1d20;
+}
+
+.tree-name mark {
+  background: none;
+  color: var(--mark);
+  font-weight: 600;
+}
+
+.tree-row.tree-root .tree-name {
+  font-weight: 600;
 }
 
 .tree-body {
@@ -973,4 +998,341 @@ mark {
   border-color: rgba(110, 168, 254, 0.55);
   background: var(--bg-selected);
   color: var(--text);
+}
+
+/* Context menu over code: go to definition, find usages. */
+.context-menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.context-menu button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.context-menu button:hover {
+  background: var(--bg-selected);
+}
+
+.context-menu button span {
+  color: var(--text-dim);
+}
+
+/* Overview window: the palette's floating bubbles in an ordinary window.
+   Tab pills and cards (tree, code, results) float over a backdrop. */
+.overview {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px 8px;
+  /* Keep in sync with BackgroundColour in overview.go. */
+  background: radial-gradient(900px 520px at 0% 0%, rgba(110, 168, 254, 0.08), transparent 70%), #0e0e11;
+}
+
+.ov-top {
+  --wails-draggable: drag;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding-top: 8px;
+}
+
+/* The frameless window draws its own edge: corners concentric with the
+   bubbles inside (16px radius + 8px gap), square when maximised. */
+.overview.frameless {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 24px;
+}
+
+.overview.frameless.maximised {
+  border: none;
+  border-radius: 0;
+}
+
+/* Room for the macOS traffic lights over the hidden title bar. */
+.ov-top.mac {
+  padding-left: 72px;
+}
+
+.ov-top .tab {
+  --wails-draggable: no-drag;
+  flex: none;
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.ov-top .tab.active {
+  background: var(--bg-selected);
+  border-color: rgba(110, 168, 254, 0.55);
+}
+
+.ov-top .tab.icon {
+  padding: 0 8px;
+}
+
+.ov-top .tab.icon svg {
+  margin: 0;
+}
+
+/* Window buttons of the frameless window outside macOS. */
+.ov-window-buttons {
+  --wails-draggable: no-drag;
+  flex: none;
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.ov-window-buttons button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.ov-window-buttons button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ov-window-buttons button.close:hover {
+  color: #fff;
+  background: #e5484d;
+}
+
+.ov-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ov-tab {
+  gap: 6px;
+  padding: 0 6px 0 12px;
+  cursor: default;
+}
+
+.ov-tab-close {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-dim);
+  visibility: hidden;
+  cursor: pointer;
+}
+
+.ov-tab .ov-tab-close svg {
+  margin: 0;
+}
+
+.ov-tab:hover .ov-tab-close,
+.ov-tab.active .ov-tab-close {
+  visibility: visible;
+}
+
+.ov-tab-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ov-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.ov-side {
+  flex: 0 0 280px;
+  min-width: 0;
+}
+
+.ov-side-title {
+  flex: none;
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.ov-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ov-main {
+  flex: 1 1 66%;
+}
+
+.ov-path {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.ov-path .path {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-code {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.ov-file {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.ov-file[hidden] {
+  display: none;
+}
+
+.ov-welcome {
+  margin: auto;
+  padding-bottom: 8%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.ov-welcome h1 {
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.ov-welcome p {
+  margin: 0 0 18px;
+}
+
+.ov-welcome-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ov-welcome-keys {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 10px 24px;
+  margin: 8px 0 0;
+}
+
+.ov-welcome-keys dt {
+  text-align: right;
+}
+
+.ov-welcome-keys dd {
+  margin: 0;
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: 12px var(--mono);
+}
+
+.ov-results {
+  flex: 0 1 34%;
+  outline: none;
+}
+
+.ov-results-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px 4px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.ov-results-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.ov-results:not(:focus-within) .row.selected {
+  background: #26262c;
+}
+
+.ov-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.ov-prompt span {
+  flex: 1;
+  color: var(--mark);
+}
+
+.ov-prompt .pill {
+  height: 26px;
+}
+
+.ov-main .status .spin {
+  vertical-align: -1px;
 }
