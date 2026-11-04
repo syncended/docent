@@ -18,3 +18,5 @@ for plist in darwin/Info.plist darwin/Info.dev.plist; do
 done
 perl -pi -e "s/(\"(?:file_version|product_version|FileVersion|ProductVersion)\": )\"[^\"]*\"/\${1}\"$numeric\"/" windows/info.json
 perl -pi -e "s/(!define INFO_PRODUCTVERSION )\"[^\"]*\"/\${1}\"$numeric\"/" windows/nsis/wails_tools.nsh
+# Assembly identity versions must have exactly four parts.
+perl -pi -e "s/(<assemblyIdentity type=\"win32\" name=\"dev\.syncended\.docent\" version=)\"[^\"]*\"/\${1}\"$numeric.0\"/" windows/wails.exe.manifest

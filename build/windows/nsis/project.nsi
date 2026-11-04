@@ -19,7 +19,7 @@ Unicode true
 ####
 ## The following information is taken from the wails_tools.nsh file, but they can be overwritten here.
 ####
-## !define INFO_PROJECTNAME    "my-project" # Default "app"
+## !define INFO_PROJECTNAME    "my-project" # Default "docent"
 ## !define INFO_COMPANYNAME    "syncended" # Default "syncended"
 ## !define INFO_PRODUCTNAME    "Docent Name" # Default "Docent"
 ## !define INFO_PRODUCTVERSION "1.0.0"     # Default "0.1.0"

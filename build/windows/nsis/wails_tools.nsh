@@ -5,7 +5,7 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "app"
+    !define INFO_PROJECTNAME "docent"
 !endif
 !ifndef INFO_COMPANYNAME
     !define INFO_COMPANYNAME "syncended"
