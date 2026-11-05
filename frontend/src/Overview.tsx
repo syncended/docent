@@ -206,7 +206,14 @@ export function Overview() {
       Events.On("overview:close", () => handlers.current.requestClose()),
       Events.On("overview:switch", (e) => handlers.current.requestSwitch(e.data as string)),
       Events.On("project:switched", (e) => handlers.current.switched(e.data as api.ProjectSwitch)),
-      Events.On("index:progress", (e) => setProgress(e.data as Progress)),
+      Events.On("index:progress", (e) => {
+        const p = e.data as Progress;
+        setProgress(p);
+        if (p.listed) {
+          api.getStatus().then(setStatus);
+          setVersion((v) => v + 1);
+        }
+      }),
       Events.On("index:done", () => {
         setProgress(null);
         api.getStatus().then(setStatus);
