@@ -22,6 +22,9 @@ type spec struct {
 	// namespaces lists node types whose body is not a local scope even if
 	// its node type is listed in local (TypeScript namespaces).
 	namespaces map[string]bool
+	// toEnd lists node types of declarations that enclose the rest of the
+	// file although their node does not (C# file-scoped namespaces).
+	toEnd map[string]bool
 	// refine adjusts the kind using the declaration node and the source,
 	// when the grammar does not distinguish kinds by node type; "" skips
 	// the declaration.
