@@ -93,6 +93,10 @@ type Progress struct {
 	Root  string `json:"root"`
 	Done  int    `json:"done"`
 	Total int    `json:"total"`
+	// Listed is set when a root indexed for the first time has its files
+	// listed: its tree and file search work from then on, before symbols
+	// and text search.
+	Listed bool `json:"listed,omitempty"`
 }
 
 // DefaultCacheDir returns <user cache dir>/docent.
@@ -219,7 +223,19 @@ func Reindex(ctx context.Context, progress func(Progress)) error {
 
 	var errs []error
 	for i, old := range current {
-		r, err := reindexRoot(ctx, old, progress)
+		// A root without an index shows its files while the rest is built.
+		listed := func(files []source.File) {
+			if len(old.files) > 0 {
+				return
+			}
+			mu.Lock()
+			roots[i] = &root{cfg: old.cfg, id: old.id, key: old.key, name: old.name, files: files, text: old.text, seed: old.seed}
+			mu.Unlock()
+			if progress != nil {
+				progress(Progress{Root: old.name, Total: len(files), Listed: true})
+			}
+		}
+		r, err := reindexRoot(ctx, old, listed, progress)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", old.cfg.Path, err))
 			continue
@@ -234,12 +250,13 @@ func Reindex(ctx context.Context, progress func(Progress)) error {
 	return errors.Join(errs...)
 }
 
-func reindexRoot(ctx context.Context, old *root, progress func(Progress)) (*root, error) {
+func reindexRoot(ctx context.Context, old *root, listed func([]source.File), progress func(Progress)) (*root, error) {
 	files, err := source.List(ctx, old.cfg)
 	if err != nil {
 		return nil, err
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	listed(files)
 
 	type prevFile struct {
 		file source.File
