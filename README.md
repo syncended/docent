@@ -28,8 +28,10 @@ Folders are grouped into projects — work services in one, side projects in
 another — and `Cmd+P` switches between them. Only the active project is
 indexed and kept in memory, so Docent stays light in the background.
 
-Structural search covers Go, Java, Kotlin, C++, Protobuf, JavaScript and
-TypeScript; file and full-text search work for everything else.
+Structural search covers Go, Java, Kotlin, C++, Protobuf, JavaScript,
+TypeScript, Python, Rust, C#, Swift, Ruby, PHP, Scala, Lua, Elixir, Groovy,
+OCaml, Elm, Bash, SQL, CSS, Terraform, and Svelte and Vue components; file
+and full-text search work for everything else.
 
 ![Search palette](docs/screenshots/palette.png)
 
