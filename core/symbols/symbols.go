@@ -182,6 +182,10 @@ func extract(ctx context.Context, spec *spec, src []byte) ([]Symbol, error) {
 			continue
 		}
 		d.pattern = m.PatternIndex
+		d.end = d.node.EndByte()
+		if spec.toEnd[d.node.Type()] {
+			d.end = uint32(len(src))
+		}
 		if spec.refine != nil {
 			if d.kind = spec.refine(d.node, src, d.kind); d.kind == "" {
 				continue
@@ -205,6 +209,8 @@ type def struct {
 	name, node *sitter.Node
 	kind       Kind
 	pattern    uint16
+	// end is where the declaration's scope ends.
+	end uint32
 }
 
 // resolve converts defs to symbols, assigning parents by range nesting.
@@ -257,7 +263,7 @@ func resolve(defs []def, src []byte) []Symbol {
 			out = append(out, s)
 		}
 		if d.kind.isContainer() {
-			stack = append(stack, open{name: s.Name, end: d.node.EndByte(), kind: d.kind})
+			stack = append(stack, open{name: s.Name, end: d.end, kind: d.kind})
 		}
 	}
 	return out
