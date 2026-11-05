@@ -77,3 +77,74 @@ func TestUTF16Offsets(t *testing.T) {
 		}
 	}
 }
+
+func TestPHP(t *testing.T) {
+	src := `<?php
+namespace App\Billing;
+// note
+class Order extends Base {
+    const MAX = 10;
+    private int $total = 0;
+    public function total(?string $x): int { return $this->sum + 1.5; }
+}
+function helper() { return strlen("a $x b") && null; }
+`
+	got := classes(t, "Order.php", src)
+	for text, class := range map[string]string{
+		"class": "keyword", "function": "keyword", "private": "keyword", "Order": "type", "Base": "type",
+		"int": "type", "total": "function", "sum": "property", "helper": "function", "strlen": "function", "MAX": "constant",
+		"$x": "variable", "10": "number", "1.5": "number", "null": "constant", "// note": "comment",
+		"App\\Billing": "namespace",
+	} {
+		if got[text] != class {
+			t.Errorf("%q: got %q, want %q", text, got[text], class)
+		}
+	}
+}
+
+func TestElixir(t *testing.T) {
+	src := `defmodule MyApp.Accounts do
+  @moduledoc "Accounts"
+  # note
+  def get(id) when is_integer(id), do: Repo.fetch(id)
+  defp check(user) do
+    if user != nil, do: :ok, else: {:error, 42}
+  end
+end
+`
+	got := classes(t, "accounts.ex", src)
+	for text, class := range map[string]string{
+		"defmodule": "keyword", "def": "keyword", "defp": "keyword", "if": "keyword", "do": "keyword",
+		"end": "keyword", "when": "keyword", "MyApp.Accounts": "type", "get": "function", "check": "function",
+		"fetch": "function", "is_integer": "function", ":ok": "constant", "nil": "constant", "42": "number",
+		`"Accounts"`: "string", "# note": "comment",
+	} {
+		if got[text] != class {
+			t.Errorf("%q: got %q, want %q", text, got[text], class)
+		}
+	}
+}
+
+func TestHCL(t *testing.T) {
+	src := `# note
+variable "region" {
+  default = "eu-west-1"
+}
+resource "aws_s3_bucket" "logs" {
+  bucket  = "logs-${var.region}"
+  count   = 2
+  enabled = true
+  name    = upper(local.name)
+}
+`
+	got := classes(t, "main.tf", src)
+	for text, class := range map[string]string{
+		"variable": "keyword", "resource": "keyword", "default": "property", "bucket": "property",
+		`"eu-west-1"`: "string", "2": "number", "true": "constant", "upper": "function", "var": "variable",
+		"region": "property", "${": "punctuation", "# note": "comment",
+	} {
+		if got[text] != class {
+			t.Errorf("%q: got %q, want %q", text, got[text], class)
+		}
+	}
+}
