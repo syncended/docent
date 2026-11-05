@@ -34,7 +34,7 @@ import (
 
 // snapshotVersion is bumped when the cached root format or symbol extraction
 // changes, invalidating caches.
-const snapshotVersion = 1
+const snapshotVersion = 2
 
 var (
 	cacheDir string
