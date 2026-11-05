@@ -175,31 +175,37 @@ namespace Utils { export const VERSION = 1; }
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.lang, func(t *testing.T) {
-			syms, err := Extract(context.Background(), tt.lang, []byte(tt.src))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got []string
-			for _, s := range syms {
-				name := s.Name
-				if s.Parent != "" {
-					name = s.Parent + "." + name
-				}
-				got = append(got, fmt.Sprintf("%s %s", name, s.Kind))
-				if slices.Contains(tt.not, s.Name) {
-					t.Errorf("unexpected symbol %s %s", name, s.Kind)
-				}
-			}
-			for _, w := range tt.want {
-				if !slices.Contains(got, w) {
-					t.Errorf("missing %q", w)
-				}
-			}
-			if t.Failed() {
-				t.Logf("got: %q", got)
-			}
-		})
+		t.Run(tt.lang, func(t *testing.T) { checkExtract(t, tt.lang, tt.src, tt.want, tt.not) })
+	}
+}
+
+// checkExtract extracts the declarations of src, written in lang, and checks
+// that each of want ("parent.name kind") is among them and none of the names
+// in not is.
+func checkExtract(t *testing.T, lang, src string, want, not []string) {
+	t.Helper()
+	syms, err := Extract(context.Background(), lang, []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range syms {
+		name := s.Name
+		if s.Parent != "" {
+			name = s.Parent + "." + name
+		}
+		got = append(got, fmt.Sprintf("%s %s", name, s.Kind))
+		if slices.Contains(not, s.Name) {
+			t.Errorf("unexpected symbol %s %s", name, s.Kind)
+		}
+	}
+	for _, w := range want {
+		if !slices.Contains(got, w) {
+			t.Errorf("missing %q", w)
+		}
+	}
+	if t.Failed() {
+		t.Logf("got: %q", got)
 	}
 }
 
