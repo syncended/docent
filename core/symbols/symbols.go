@@ -23,6 +23,7 @@ const (
 	Object    Kind = "object"
 	Message   Kind = "message"
 	Service   Kind = "service"
+	Table     Kind = "table"
 	TypeAlias Kind = "type"
 	Namespace Kind = "namespace"
 	Function  Kind = "function"
@@ -33,12 +34,17 @@ const (
 	Constant  Kind = "constant"
 	Variable  Kind = "variable"
 	EnumValue Kind = "enum_value"
+
+	// scope is captured by queries for a block that adds members to a type
+	// declared elsewhere, such as a Rust impl or a Swift extension: it is
+	// the parent of the declarations in it, but not a declaration itself.
+	scope Kind = "scope"
 )
 
 // IsType reports whether declarations of this kind are shown in the Types tab.
 func (k Kind) IsType() bool {
 	switch k {
-	case Class, Interface, Enum, Struct, Union, Object, Message, Service, TypeAlias:
+	case Class, Interface, Enum, Struct, Union, Object, Message, Service, Table, TypeAlias:
 		return true
 	}
 	return false
@@ -47,7 +53,7 @@ func (k Kind) IsType() bool {
 // isContainer reports whether declarations of this kind become the Parent
 // of declarations nested in them.
 func (k Kind) isContainer() bool {
-	return k.IsType() && k != TypeAlias || k == Namespace
+	return k.IsType() && k != TypeAlias || k == Namespace || k == scope
 }
 
 // Symbol is a named declaration.
@@ -190,7 +196,9 @@ func resolve(defs []def, src []byte) []Symbol {
 		case s.Kind == Property:
 			s.Kind = Variable
 		}
-		out = append(out, s)
+		if d.kind != scope {
+			out = append(out, s)
+		}
 		if d.kind.isContainer() {
 			stack = append(stack, open{name: s.Name, end: d.node.EndByte(), kind: d.kind})
 		}
