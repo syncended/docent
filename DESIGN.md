@@ -559,3 +559,11 @@ Decisions on open questions, with date and a short rationale.
   projects…" at its end, so projects can be found from the keyboard; the
   pill still appears only with two or more, so a single project shows
   nothing extra. A new project starts from a folder, like the first run.
+- **2026-11-05 — Languages: every grammar the bundled tree-sitter bindings
+  ship.** Beyond the required minimum, structural search covers Python,
+  Rust, C#, Swift, Ruby, PHP, Scala, Lua, Elixir, Groovy, OCaml, Elm, Bash,
+  SQL, CSS, Terraform/HCL, and the scripts of Svelte and Vue components. They
+  come with the tree-sitter bindings Docent already uses, so each costs a
+  query rather than a new dependency. Grammars from elsewhere (Objective-C,
+  Dart, Zig and others) each add C code to build on every platform, Windows
+  included; they are left until there is a need for one.
