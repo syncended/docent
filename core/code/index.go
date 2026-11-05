@@ -1,8 +1,9 @@
-// Package code indexes code roots and searches them.
+// Package code indexes the code roots of the active project and searches them.
 // It is the shell-independent core of Docent.
 //
 // The index is package state: call Open once at startup, then use the
-// package functions from any goroutine.
+// package functions from any goroutine. Only the active project's roots are
+// loaded; other projects keep their caches on disk.
 package code
 
 import (
@@ -42,18 +43,27 @@ var (
 	roots []*root
 
 	reindexMu sync.Mutex
-	text      zsearch.ReadySearcher
 )
 
 type root struct {
 	cfg config.Root
-	// id is stable for a root path; it names the cache and the zoekt repository.
+	// id is stable for a root's path, so editing its subdirectories keeps
+	// open files pointing at it; it names the zoekt repository.
 	id string
+	// key names the cache: the same folder in two projects with different
+	// subdirectories keeps two.
+	key string
+	// seed is another cache of the same folder, used for the symbols of
+	// unchanged files when this one has none yet.
+	seed *snapshot
 	// name is shown to the user.
 	name      string
 	files     []source.File
 	syms      []entry
 	indexedAt time.Time
+	// text searches the root's shards, which have a directory of their own
+	// so that only the active project's shards are loaded.
+	text zsearch.ReadySearcher
 }
 
 type entry struct {
@@ -94,44 +104,96 @@ func DefaultCacheDir() (string, error) {
 	return filepath.Join(dir, "docent"), nil
 }
 
-// Open loads the cached index of the configured roots, keeping caches in dir.
-// Roots without a cache are empty until Reindex. Calling Open again replaces
-// the roots; it waits for a running Reindex to finish.
+// Open loads the cached index of the active project's roots, keeping caches
+// in dir, and deletes the caches of roots no project has. Roots without a
+// cache are empty until Reindex. Calling Open again replaces the roots; it
+// waits for a running Reindex to finish.
 func Open(cfg *config.Config, dir string) error {
 	reindexMu.Lock()
 	defer reindexMu.Unlock()
 	cacheDir = dir
-	if err := os.MkdirAll(shardDir(), 0o755); err != nil {
-		return err
-	}
 	var loaded []*root
-	for _, rc := range cfg.Roots {
-		r := &root{cfg: rc, id: rootID(rc.Path), name: filepath.Base(rc.Path)}
-		if s, err := loadSnapshot(r.id); err == nil {
+	for _, rc := range config.ActiveProject(cfg).Roots {
+		r := &root{cfg: rc, id: rootID(rc.Path), key: cacheKey(rc), name: filepath.Base(rc.Path)}
+		if s, err := loadSnapshot(r.key); err == nil {
 			r.files, r.syms, r.indexedAt = s.Files, s.Syms, s.IndexedAt
+		} else {
+			r.seed = loadSeed(r.id)
 		}
+		if err := os.MkdirAll(shardDir(r.key), 0o755); err != nil {
+			closeText(loaded)
+			return err
+		}
+		// Shards load in the background; see TextReady.
+		searcher, err := zsearch.NewDirectorySearcherFast(shardDir(r.key))
+		if err != nil {
+			closeText(loaded)
+			return err
+		}
+		r.text = searcher
 		loaded = append(loaded, r)
 	}
-	// Shards load in the background; see TextReady.
-	searcher, err := zsearch.NewDirectorySearcherFast(shardDir())
-	if err != nil {
-		return err
-	}
 	mu.Lock()
-	if text != nil {
-		text.Close()
-	}
-	roots, text = loaded, searcher
+	old := roots
+	roots = loaded
 	mu.Unlock()
+	closeText(old)
+	// Best effort: a cache that cannot be deleted now goes at the next Open.
+	removeStale(cfg)
 	return nil
 }
 
 // TextReady reports whether the text index has finished loading.
-func TextReady() bool { return text.Ready() }
+func TextReady() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	for _, r := range roots {
+		if !r.text.Ready() {
+			return false
+		}
+	}
+	return true
+}
 
 // Close releases the engine's resources.
 func Close() {
-	text.Close()
+	mu.Lock()
+	old := roots
+	roots = nil
+	mu.Unlock()
+	closeText(old)
+}
+
+func closeText(rs []*root) {
+	for _, r := range rs {
+		r.text.Close()
+	}
+}
+
+// removeStale deletes the caches of roots that are in no project, such as a
+// removed root or one whose subdirectories changed, and shards left in the
+// shared directory used before projects.
+func removeStale(cfg *config.Config) error {
+	keep := map[string]bool{}
+	for _, p := range cfg.Projects {
+		for _, rc := range p.Roots {
+			keep[cacheKey(rc)] = true
+		}
+	}
+	var errs []error
+	shards, _ := os.ReadDir(filepath.Join(cacheDir, "shards"))
+	for _, e := range shards {
+		if !keep[e.Name()] {
+			errs = append(errs, os.RemoveAll(filepath.Join(cacheDir, "shards", e.Name())))
+		}
+	}
+	snapshots, _ := os.ReadDir(filepath.Join(cacheDir, "roots"))
+	for _, e := range snapshots {
+		if id, ok := strings.CutSuffix(e.Name(), ".gob"); ok && !keep[id] {
+			errs = append(errs, os.Remove(filepath.Join(cacheDir, "roots", e.Name())))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Roots describes the indexed roots.
@@ -183,12 +245,16 @@ func reindexRoot(ctx context.Context, old *root, progress func(Progress)) (*root
 		file source.File
 		syms []symbols.Symbol
 	}
-	prev := make(map[string]*prevFile, len(old.files))
-	for _, f := range old.files {
+	prevFiles, prevSyms := old.files, old.syms
+	if len(prevFiles) == 0 && old.seed != nil {
+		prevFiles, prevSyms = old.seed.Files, old.seed.Syms
+	}
+	prev := make(map[string]*prevFile, len(prevFiles))
+	for _, f := range prevFiles {
 		prev[f.Path] = &prevFile{file: f}
 	}
-	for _, s := range old.syms {
-		p := prev[old.files[s.File].Path]
+	for _, s := range prevSyms {
+		p := prev[prevFiles[s.File].Path]
 		p.syms = append(p.syms, s.Symbol)
 	}
 
@@ -196,21 +262,21 @@ func reindexRoot(ctx context.Context, old *root, progress func(Progress)) (*root
 		p, ok := prev[f.Path]
 		return ok && p.file.Size == f.Size && p.file.ModTime.Equal(f.ModTime)
 	}
-	changed := len(files) != len(old.files) || !hasShards(old.id)
+	changed := len(files) != len(old.files) || !hasShards(old.key)
 	for _, f := range files {
 		if !changed && !unchanged(f) {
 			changed = true
 		}
 	}
-	r := &root{cfg: old.cfg, id: old.id, name: old.name, files: files, indexedAt: time.Now()}
+	r := &root{cfg: old.cfg, id: old.id, key: old.key, name: old.name, files: files, indexedAt: time.Now(), text: old.text}
 	if !changed {
 		r.syms = old.syms
 		return r, nil
 	}
 
 	builder, err := zindex.NewBuilder(zindex.Options{
-		IndexDir:              shardDir(),
-		ShardPrefixOverride:   r.id,
+		IndexDir:              shardDir(r.key),
+		ShardPrefixOverride:   r.key,
 		RepositoryDescription: zoekt.Repository{Name: r.id},
 		DisableCTags:          true,
 		SizeMax:               source.MaxFileSize,
@@ -322,15 +388,34 @@ func rootID(path string) string {
 	return filepath.Base(path) + "-" + hex.EncodeToString(sum[:4])
 }
 
-func shardDir() string { return filepath.Join(cacheDir, "shards") }
-
-func snapshotPath(id string) string {
-	return filepath.Join(cacheDir, "roots", id+".gob")
+// cacheKey names the cache of a root: its ID and a hash of its filters.
+func cacheKey(rc config.Root) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%q\x00%q", rc.Include, rc.Exclude)
+	return rootID(rc.Path) + "." + hex.EncodeToString(h.Sum(nil)[:4])
 }
 
-func hasShards(id string) bool {
-	m, _ := filepath.Glob(filepath.Join(shardDir(), id+"_v*.zoekt"))
+func shardDir(key string) string { return filepath.Join(cacheDir, "shards", key) }
+
+func snapshotPath(key string) string {
+	return filepath.Join(cacheDir, "roots", key+".gob")
+}
+
+func hasShards(key string) bool {
+	m, _ := filepath.Glob(filepath.Join(shardDir(key), key+"_v*.zoekt"))
 	return len(m) > 0
+}
+
+// loadSeed loads any cache of the root with the given ID, with other
+// subdirectories or from before projects, or nil if there is none.
+func loadSeed(id string) *snapshot {
+	m, _ := filepath.Glob(filepath.Join(cacheDir, "roots", id+".*gob"))
+	for _, path := range m {
+		if s, err := loadSnapshot(strings.TrimSuffix(filepath.Base(path), ".gob")); err == nil {
+			return s
+		}
+	}
+	return nil
 }
 
 func loadSnapshot(id string) (*snapshot, error) {
@@ -350,7 +435,7 @@ func loadSnapshot(id string) (*snapshot, error) {
 }
 
 func saveSnapshot(r *root) error {
-	path := snapshotPath(r.id)
+	path := snapshotPath(r.key)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

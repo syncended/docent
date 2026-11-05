@@ -14,9 +14,24 @@ import (
 
 // Config is the user configuration, stored as TOML.
 type Config struct {
-	Roots   []Root  `toml:"roots" json:"roots"`
+	// Active is the name of the active project. Load sets it to the first
+	// project's if it names none.
+	Active   string    `toml:"active,omitempty" json:"active"`
+	Projects []Project `toml:"projects" json:"projects"`
+	// Roots is the layout from before projects; Load moves it into a project
+	// named DefaultProject.
+	Roots   []Root  `toml:"roots,omitempty" json:"-"`
 	Agent   Agent   `toml:"agent" json:"agent"`
 	Palette Palette `toml:"palette" json:"palette"`
+}
+
+// DefaultProject names the project that roots from before projects move into.
+const DefaultProject = "Default"
+
+// Project is a named group of roots; one project is active at a time.
+type Project struct {
+	Name  string `toml:"name" json:"name"`
+	Roots []Root `toml:"roots" json:"roots"`
 }
 
 // Palette configures the search palette window.
@@ -69,24 +84,67 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
-	for i := range c.Roots {
-		p, err := expandHome(c.Roots[i].Path)
-		if err != nil {
-			return nil, err
+	if len(c.Roots) > 0 && len(c.Projects) == 0 {
+		c.Projects = []Project{{Name: DefaultProject, Roots: c.Roots}}
+	}
+	c.Roots = nil
+	for _, p := range c.Projects {
+		for i := range p.Roots {
+			path, err := expandHome(p.Roots[i].Path)
+			if err != nil {
+				return nil, err
+			}
+			p.Roots[i].Path = filepath.Clean(path)
 		}
-		c.Roots[i].Path = filepath.Clean(p)
+	}
+	if len(c.Projects) > 0 && ProjectIndex(&c, c.Active) < 0 {
+		c.Active = c.Projects[0].Name
 	}
 	return &c, nil
+}
+
+// ActiveProject returns the active project, or an empty one if there are
+// no projects.
+func ActiveProject(c *Config) Project {
+	if i := ProjectIndex(c, c.Active); i >= 0 {
+		return c.Projects[i]
+	}
+	return Project{}
+}
+
+// ProjectIndex returns the index of the project named name, or -1.
+func ProjectIndex(c *Config, name string) int {
+	for i, p := range c.Projects {
+		if p.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// UniqueProjectName returns name, or name with a number appended if a
+// project is already called that.
+func UniqueProjectName(c *Config, name string) string {
+	unique := name
+	for n := 2; ProjectIndex(c, unique) >= 0; n++ {
+		unique = fmt.Sprintf("%s %d", name, n)
+	}
+	return unique
 }
 
 // Save writes c to path, replacing the file atomically. Paths under the home
 // directory are written with a leading "~".
 func Save(path string, c *Config) error {
 	out := *c
-	out.Roots = make([]Root, len(c.Roots))
-	for i, r := range c.Roots {
-		r.Path = contractHome(r.Path)
-		out.Roots[i] = r
+	out.Roots = nil
+	out.Projects = make([]Project, len(c.Projects))
+	for i, p := range c.Projects {
+		roots := make([]Root, len(p.Roots))
+		for j, r := range p.Roots {
+			r.Path = contractHome(r.Path)
+			roots[j] = r
+		}
+		out.Projects[i] = Project{Name: p.Name, Roots: roots}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

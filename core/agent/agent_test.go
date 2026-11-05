@@ -26,7 +26,7 @@ func setupIndex(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "repo", "order.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{Roots: []config.Root{{Path: filepath.Join(dir, "repo")}}}
+	cfg := &config.Config{Active: "test", Projects: []config.Project{{Name: "test", Roots: []config.Root{{Path: filepath.Join(dir, "repo")}}}}}
 	if err := code.Open(cfg, filepath.Join(dir, "cache")); err != nil {
 		t.Fatal(err)
 	}

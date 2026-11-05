@@ -88,6 +88,7 @@ func run() error {
 		return err
 	}
 	paletteScreen.Store(cfg.Palette.Screen)
+	current.Store(cfg)
 	if cacheDir, err = code.DefaultCacheDir(); err != nil {
 		return err
 	}
@@ -199,16 +200,19 @@ func togglePalette() {
 	hidePalette()
 }
 
-// showPalette summons the palette. Over the focused overview window its
-// results open there; palette:shown tells the frontend which.
-func showPalette() {
+// showPalette summons the palette.
+func showPalette() { summon("palette:shown") }
+
+// summon shows the palette and sends event to the frontend. Over the focused
+// overview window its results open there; the event's data tells which.
+func summon(event string) {
 	over := overviewFocused()
 	overPalette.Store(over)
 	target := ""
 	if over {
 		target = "overview"
 	}
-	showOffScreen("palette:shown", target)
+	showOffScreen(event, target)
 }
 
 // showSettings shows the palette on the settings screen, at the settings
@@ -267,7 +271,7 @@ func pickFolder(w *application.WebviewWindow) (string, error) {
 		w.Focus()
 	}()
 	return app.Dialog.OpenFile().
-		SetTitle("Add code root").
+		SetTitle("Choose a folder with code").
 		CanChooseFiles(false).
 		CanChooseDirectories(true).
 		CanCreateDirectories(false).
@@ -275,8 +279,9 @@ func pickFolder(w *application.WebviewWindow) (string, error) {
 		PromptForSingleSelection()
 }
 
-// applyConfig saves cfg, reopens the index with its roots and re-indexes in
-// the background.
+// applyConfig saves cfg, reopens the index with the active project's roots
+// and re-indexes in the background. A change of the active project is sent
+// to both windows. Callers that loaded cfg to change it hold configMu.
 func applyConfig(cfg *config.Config) error {
 	if err := config.Save(configPath, cfg); err != nil {
 		return err
@@ -290,8 +295,23 @@ func applyConfig(cfg *config.Config) error {
 		(*cancel)()
 	}
 	paletteScreen.Store(saved.Palette.Screen)
+	prev := current.Load()
+	switched := prev == nil || prev.Active != saved.Active
+	if switched {
+		// A running agent must not search the next project for a question
+		// about this one.
+		stopAgent()
+	}
 	if err := code.Open(saved, cacheDir); err != nil {
 		return err
+	}
+	current.Store(saved)
+	if switched {
+		from := ""
+		if prev != nil {
+			from = prev.Active
+		}
+		app.Event.Emit("project:switched", projectSwitch{From: from, To: saved.Active})
 	}
 	go reindex()
 	return nil
