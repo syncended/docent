@@ -252,6 +252,42 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestReindexListsFilesFirst(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, filepath.Join(dir, "repo"), fixture)
+	if err := Open(project(filepath.Join(dir, "repo")), filepath.Join(dir, "cache")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(Close)
+	id := Roots()[0].ID
+	listed := false
+	err := Reindex(context.Background(), func(p Progress) {
+		if !p.Listed {
+			return
+		}
+		listed = true
+		// The tree and file search work before symbols are extracted.
+		if entries, err := ListDir(id, ""); err != nil || len(entries) == 0 {
+			t.Errorf("ListDir while indexing = %v, %v", entries, err)
+		}
+		if got := SearchFiles("order", 10); len(got) != 3 {
+			t.Errorf("SearchFiles while indexing = %v", titles(got))
+		}
+		if got := SearchTypes("Order", 10); len(got) != 0 {
+			t.Errorf("symbols before extraction: %v", titles(got))
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listed {
+		t.Error("no Listed progress for a root indexed for the first time")
+	}
+	if got := SearchTypes("Order", 10); len(got) == 0 {
+		t.Error("no symbols after indexing")
+	}
+}
+
 func TestReindexKeepsUnchanged(t *testing.T) {
 	setup(t)
 	before := Roots()[0]

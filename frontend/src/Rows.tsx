@@ -88,7 +88,7 @@ function SnippetLine({ hit }: { hit: Hit }) {
 
 function kindLabel(kind: string): string {
   const labels: Record<string, string> = {
-    class: "C", interface: "I", enum: "E", struct: "S", union: "U", object: "O", message: "M", service: "Sv",
+    class: "C", interface: "I", enum: "E", struct: "S", union: "U", object: "O", message: "M", service: "Sv", table: "Tb",
     type: "T", namespace: "N", function: "ƒ", method: "m", rpc: "R", field: "f", property: "p",
     constant: "c", variable: "v", enum_value: "e", files: "F", text: "T",
   };

@@ -6,7 +6,7 @@ import * as api from "./api";
 // good CodeMirror grammar. Spans move with edits and are refreshed shortly
 // after typing stops.
 
-const extensions = new Set(["kt", "kts", "proto"]);
+const extensions = new Set(["kt", "kts", "proto", "php", "ex", "exs", "tf", "tfvars", "hcl"]);
 
 export function serverHighlighted(path: string): boolean {
   return extensions.has(path.slice(path.lastIndexOf(".") + 1).toLowerCase());

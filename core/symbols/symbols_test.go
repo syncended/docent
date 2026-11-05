@@ -11,7 +11,11 @@ func TestLanguage(t *testing.T) {
 	for p, want := range map[string]string{
 		"a/b.go": "go", "X.java": "java", "x.kt": "kotlin", "x.KTS": "kotlin",
 		"x.hpp": "cpp", "x.cc": "cpp", "api.proto": "proto", "x.mjs": "javascript",
-		"x.ts": "typescript", "x.tsx": "tsx", "README.md": "", "Makefile": "",
+		"x.ts": "typescript", "x.tsx": "tsx", "x.py": "python", "x.rs": "rust", "x.cs": "csharp",
+		"x.swift": "swift", "x.rb": "ruby", "x.php": "php", "x.scala": "scala", "x.lua": "lua",
+		"x.ex": "elixir", "build.gradle": "groovy", "x.ml": "ocaml", "x.elm": "elm", "x.sh": "bash",
+		"x.sql": "sql", "x.css": "css", "main.tf": "hcl", "App.svelte": "svelte", "App.vue": "vue",
+		"README.md": "", "Makefile": "",
 	} {
 		if got := Language(p); got != want {
 			t.Errorf("Language(%q) = %q, want %q", p, got, want)
@@ -175,31 +179,37 @@ namespace Utils { export const VERSION = 1; }
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.lang, func(t *testing.T) {
-			syms, err := Extract(context.Background(), tt.lang, []byte(tt.src))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got []string
-			for _, s := range syms {
-				name := s.Name
-				if s.Parent != "" {
-					name = s.Parent + "." + name
-				}
-				got = append(got, fmt.Sprintf("%s %s", name, s.Kind))
-				if slices.Contains(tt.not, s.Name) {
-					t.Errorf("unexpected symbol %s %s", name, s.Kind)
-				}
-			}
-			for _, w := range tt.want {
-				if !slices.Contains(got, w) {
-					t.Errorf("missing %q", w)
-				}
-			}
-			if t.Failed() {
-				t.Logf("got: %q", got)
-			}
-		})
+		t.Run(tt.lang, func(t *testing.T) { checkExtract(t, tt.lang, tt.src, tt.want, tt.not) })
+	}
+}
+
+// checkExtract extracts the declarations of src, written in lang, and checks
+// that each of want ("parent.name kind") is among them and none of the names
+// in not is.
+func checkExtract(t *testing.T, lang, src string, want, not []string) {
+	t.Helper()
+	syms, err := Extract(context.Background(), lang, []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range syms {
+		name := s.Name
+		if s.Parent != "" {
+			name = s.Parent + "." + name
+		}
+		got = append(got, fmt.Sprintf("%s %s", name, s.Kind))
+		if slices.Contains(not, s.Name) {
+			t.Errorf("unexpected symbol %s %s", name, s.Kind)
+		}
+	}
+	for _, w := range want {
+		if !slices.Contains(got, w) {
+			t.Errorf("missing %q", w)
+		}
+	}
+	if t.Failed() {
+		t.Logf("got: %q", got)
 	}
 }
 

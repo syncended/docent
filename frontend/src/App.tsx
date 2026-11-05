@@ -136,7 +136,14 @@ export function App() {
         const { run: id, event } = e.data as { run: number; event: api.AgentEvent };
         if (id === runId.current) setRun((r) => r && applyEvent(r, event));
       }),
-      Events.On("index:progress", (e) => setProgress(e.data as Progress)),
+      Events.On("index:progress", (e) => {
+        const p = e.data as Progress;
+        setProgress(p);
+        if (p.listed) {
+          api.getStatus().then(setStatus);
+          setIndexVersion((v) => v + 1);
+        }
+      }),
       Events.On("index:done", () => {
         setProgress(null);
         api.getStatus().then(setStatus);

@@ -56,6 +56,9 @@ export interface Progress {
   root: string;
   done: number;
   total: number;
+  // listed is set once a root indexed for the first time has its files
+  // listed: the tree can show them before indexing ends.
+  listed?: boolean;
 }
 
 async function request<T>(method: string, path: string, params: Record<string, string>, body?: string, signal?: AbortSignal): Promise<T> {

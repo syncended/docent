@@ -23,6 +23,7 @@ const (
 	Object    Kind = "object"
 	Message   Kind = "message"
 	Service   Kind = "service"
+	Table     Kind = "table"
 	TypeAlias Kind = "type"
 	Namespace Kind = "namespace"
 	Function  Kind = "function"
@@ -33,12 +34,17 @@ const (
 	Constant  Kind = "constant"
 	Variable  Kind = "variable"
 	EnumValue Kind = "enum_value"
+
+	// scope is captured by queries for a block that adds members to a type
+	// declared elsewhere, such as a Rust impl or a Swift extension: it is
+	// the parent of the declarations in it, but not a declaration itself.
+	scope Kind = "scope"
 )
 
 // IsType reports whether declarations of this kind are shown in the Types tab.
 func (k Kind) IsType() bool {
 	switch k {
-	case Class, Interface, Enum, Struct, Union, Object, Message, Service, TypeAlias:
+	case Class, Interface, Enum, Struct, Union, Object, Message, Service, Table, TypeAlias:
 		return true
 	}
 	return false
@@ -47,7 +53,7 @@ func (k Kind) IsType() bool {
 // isContainer reports whether declarations of this kind become the Parent
 // of declarations nested in them.
 func (k Kind) isContainer() bool {
-	return k.IsType() && k != TypeAlias || k == Namespace
+	return k.IsType() && k != TypeAlias || k == Namespace || k == scope
 }
 
 // Symbol is a named declaration.
@@ -82,6 +88,61 @@ func Extract(ctx context.Context, lang string, src []byte) ([]Symbol, error) {
 	if !ok {
 		return nil, fmt.Errorf("unsupported language %q", lang)
 	}
+	if spec.scripts != "" {
+		return extractScripts(ctx, spec, src)
+	}
+	return extract(ctx, spec, src)
+}
+
+// extractScripts returns the declarations in the <script> blocks of a
+// component file, at their positions in the file.
+func extractScripts(ctx context.Context, spec *spec, src []byte) ([]Symbol, error) {
+	parser := sitter.NewParser()
+	defer parser.Close()
+	parser.SetLanguage(spec.language)
+	tree, err := parser.ParseCtx(ctx, nil, src)
+	if err != nil {
+		return nil, err
+	}
+	defer tree.Close()
+
+	var out []Symbol
+	var walk func(n *sitter.Node) error
+	walk = func(n *sitter.Node) error {
+		if n.Type() == "script_element" {
+			for i := 0; i < int(n.NamedChildCount()); i++ {
+				raw := n.NamedChild(i)
+				if raw.Type() != "raw_text" {
+					continue
+				}
+				syms, err := extract(ctx, specs[spec.scripts], src[raw.StartByte():raw.EndByte()])
+				if err != nil {
+					return err
+				}
+				at := raw.StartPoint()
+				for _, s := range syms {
+					if s.Line == 1 {
+						s.Column += int(at.Column)
+					}
+					s.Line += int(at.Row)
+					s.Start += raw.StartByte()
+					s.End += raw.StartByte()
+					out = append(out, s)
+				}
+			}
+			return nil
+		}
+		for i := 0; i < int(n.NamedChildCount()); i++ {
+			if err := walk(n.NamedChild(i)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return out, walk(tree.RootNode())
+}
+
+func extract(ctx context.Context, spec *spec, src []byte) ([]Symbol, error) {
 	q, err := spec.compile()
 	if err != nil {
 		return nil, err
@@ -121,8 +182,14 @@ func Extract(ctx context.Context, lang string, src []byte) ([]Symbol, error) {
 			continue
 		}
 		d.pattern = m.PatternIndex
+		d.end = d.node.EndByte()
+		if spec.toEnd[d.node.Type()] {
+			d.end = uint32(len(src))
+		}
 		if spec.refine != nil {
-			d.kind = spec.refine(d.node, d.kind)
+			if d.kind = spec.refine(d.node, src, d.kind); d.kind == "" {
+				continue
+			}
 		}
 		start := d.name.StartByte()
 		if prev, ok := byStart[start]; ok && prev.pattern <= d.pattern {
@@ -142,6 +209,8 @@ type def struct {
 	name, node *sitter.Node
 	kind       Kind
 	pattern    uint16
+	// end is where the declaration's scope ends.
+	end uint32
 }
 
 // resolve converts defs to symbols, assigning parents by range nesting.
@@ -190,9 +259,11 @@ func resolve(defs []def, src []byte) []Symbol {
 		case s.Kind == Property:
 			s.Kind = Variable
 		}
-		out = append(out, s)
+		if d.kind != scope {
+			out = append(out, s)
+		}
 		if d.kind.isContainer() {
-			stack = append(stack, open{name: s.Name, end: d.node.EndByte(), kind: d.kind})
+			stack = append(stack, open{name: s.Name, end: d.end, kind: d.kind})
 		}
 	}
 	return out
