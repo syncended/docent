@@ -1,11 +1,35 @@
 # docent
 
-A read-mostly IDE for searching and viewing code with an agent.
+**Read the code your agents write.**
 
-Docent lives in the background: a global hotkey brings up a search palette on
-top of the active window. The palette finds symbols, types, proto definitions,
-files and text — or searches by meaning through an agent — shows results as
-code snippets, and opens a lightweight viewer with quick editing.
+Writing code is moving to agents. What stays with you is reading it: finding
+where something lives, seeing how the pieces fit, checking what changed and
+why. A full IDE is too heavy to keep open just for that, and a repository's
+web UI is too slow.
+
+Docent is the reading half of an IDE, and nothing else. Point it at any
+folder — a whole repository, or just the few services you care about in a
+monorepo — and it builds a local index: a trigram index for text and regular
+expressions, and tree-sitter declarations for types, functions, fields and
+proto messages. No project files, no build, no language servers; it works
+the same on code it has never seen before.
+
+Two ways in:
+
+- **Search from anywhere.** A global hotkey brings up a palette over whatever
+  you are doing. Find a type, a symbol, a file or a line of text — or ask in
+  plain words, and an agent searches the same index for you. Results are
+  code snippets, not just file names.
+- **Survey a project.** The overview window has the project tree, files in
+  tabs, go to definition and find usages: everything for walking through
+  code, without the rest of an IDE.
+
+Folders are grouped into projects — work services in one, side projects in
+another — and `Cmd+P` switches between them. Only the active project is
+indexed and kept in memory, so Docent stays light in the background.
+
+Structural search covers Go, Java, Kotlin, C++, Protobuf, JavaScript and
+TypeScript; file and full-text search work for everything else.
 
 ![Search palette](docs/screenshots/palette.png)
 
@@ -55,8 +79,9 @@ To cross-compile for Windows from macOS or Linux, build the Docker image once
 with `wails3 task setup:docker`, then run `wails3 build GOOS=windows`.
 
 Then press `Cmd+Shift+Space` (`Ctrl+Shift+Space` on Windows), add a folder,
-and search. Settings (`Cmd+,`, `Ctrl+,` on Windows) configure code roots and
-the agent provider; API keys are kept in the system credential store.
+and search. Settings (`Cmd+,`, `Ctrl+,` on Windows) configure projects, their
+folders and the agent provider; API keys are kept in the system credential
+store.
 
 Tests: `go test ./...`
 
