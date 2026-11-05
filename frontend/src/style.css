@@ -188,7 +188,8 @@ body,
 .k-class,
 .k-struct,
 .k-object,
-.k-message {
+.k-message,
+.k-table {
   color: #6ea8fe;
 }
 .k-interface,

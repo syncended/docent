@@ -13,7 +13,10 @@ import (
 	"unicode/utf8"
 
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/elixir"
+	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/kotlin"
+	"github.com/smacker/go-tree-sitter/php"
 	"github.com/smacker/go-tree-sitter/protobuf"
 )
 
@@ -29,7 +32,9 @@ type language struct {
 	exts     []string
 	language *sitter.Language
 	// query captures ranges with the class name, e.g. @keyword. Nested
-	// captures are all returned; the innermost wins when rendered.
+	// captures are all returned; the innermost wins when rendered. Captures
+	// starting with "_" only feed predicates such as #match? and are not
+	// highlighted.
 	query string
 
 	once sync.Once
@@ -70,6 +75,95 @@ var languages = []*language{
 ["package" "import" "class" "interface" "object" "fun" "val" "var" "if" "else" "when" "for" "while" "do"
  "return" "throw" "try" "catch" "finally" "in" "is" "as" "typealias" "companion" "break" "continue"
  "constructor" "init" "by" "get" "set" "where" "enum"] @keyword
+`,
+	},
+	{
+		exts:     []string{".php"},
+		language: php.GetLanguage(),
+		query: `
+(comment) @comment
+[(string) (encapsed_string) (heredoc) (nowdoc)] @string
+(escape_sequence) @punctuation
+[(integer) (float)] @number
+[(boolean) (null)] @constant
+(php_tag) @keyword
+"?>" @keyword
+(variable_name) @variable
+[(primitive_type) (cast_type)] @type
+(named_type (name) @type)
+(named_type (qualified_name) @type)
+(class_declaration name: (name) @type)
+(interface_declaration name: (name) @type)
+(trait_declaration name: (name) @type)
+(enum_declaration name: (name) @type)
+(base_clause (name) @type)
+(class_interface_clause (name) @type)
+(object_creation_expression (name) @type)
+(scoped_call_expression scope: (name) @type)
+(class_constant_access_expression (name) @type)
+(function_definition name: (name) @function)
+(method_declaration name: (name) @function)
+(function_call_expression function: (name) @function)
+(function_call_expression function: (qualified_name (name) @function))
+(member_call_expression name: (name) @function)
+(nullsafe_member_call_expression name: (name) @function)
+(scoped_call_expression name: (name) @function)
+(member_access_expression name: (name) @property)
+(property_element (variable_name) @property)
+(const_element (name) @constant)
+(enum_case name: (name) @constant)
+(namespace_definition name: (namespace_name) @namespace)
+(namespace_use_clause (qualified_name) @namespace)
+(attribute (name) @annotation)
+[(visibility_modifier) (static_modifier) (abstract_modifier) (final_modifier) (readonly_modifier)] @keyword
+["abstract" "as" "break" "case" "catch" "class" "clone" "const" "continue" "declare" "default" "do" "echo"
+ "else" "elseif" "enum" "extends" "finally" "fn" "for" "foreach" "function" "global" "if" "implements"
+ "include" "include_once" "instanceof" "insteadof" "interface" "match" "namespace" "new" "print" "require"
+ "require_once" "return" "switch" "throw" "trait" "try" "use" "while" "yield"] @keyword
+`,
+	},
+	{
+		exts:     []string{".ex", ".exs"},
+		language: elixir.GetLanguage(),
+		query: `
+(comment) @comment
+[(string) (charlist)] @string
+(sigil) @string
+(escape_sequence) @punctuation
+(interpolation ["#{" "}"] @punctuation)
+[(integer) (float)] @number
+[(boolean) (nil)] @constant
+[(atom) (quoted_atom)] @constant
+(keyword) @constant
+(alias) @type
+(unary_operator operator: "@" operand: (call target: (identifier) @annotation))
+(unary_operator operator: "@") @annotation
+(call target: (identifier) @function)
+(call target: (dot right: (identifier) @function))
+(call target: (identifier) @_def (arguments [(identifier) @function (call target: (identifier) @function)
+  (binary_operator left: (call target: (identifier) @function))])
+  (#match? @_def "^(def|defp|defmacro|defmacrop|defguard|defguardp|defdelegate)$"))
+((call target: (identifier) @keyword)
+  (#match? @keyword "^(def|defp|defmacro|defmacrop|defguard|defguardp|defdelegate|defmodule|defprotocol|defimpl|defstruct|defexception|defoverridable|if|unless|case|cond|with|for|try|receive|raise|reraise|throw|quote|unquote|import|alias|require|use)$"))
+["do" "end" "fn" "after" "else" "catch" "rescue" "when" "and" "or" "not" "in"] @keyword
+`,
+	},
+	{
+		exts:     []string{".tf", ".tfvars", ".hcl"},
+		language: hcl.GetLanguage(),
+		query: `
+(comment) @comment
+[(string_lit) (quoted_template) (heredoc_template)] @string
+[(template_interpolation_start) (template_interpolation_end)] @punctuation
+(numeric_lit) @number
+[(bool_lit) (null_lit)] @constant
+(block (identifier) @keyword)
+(attribute (identifier) @property)
+(object_elem key: (expression (variable_expr (identifier) @property)))
+(get_attr (identifier) @property)
+(variable_expr (identifier) @variable)
+(function_call (identifier) @function)
+["for" "in" "if" "else" "endif" "endfor"] @keyword
 `,
 	},
 	{
@@ -154,8 +248,12 @@ func Highlight(ctx context.Context, path string, src []byte) ([]Span, error) {
 		if !ok {
 			break
 		}
+		m = qc.FilterPredicates(m, src)
 		for _, c := range m.Captures {
 			s := byteSpan{c.Node.StartByte(), c.Node.EndByte(), q.CaptureNameForId(c.Index)}
+			if strings.HasPrefix(s.class, "_") {
+				continue
+			}
 			if s.from < s.to && !seen[s] {
 				seen[s] = true
 				spans = append(spans, s)
