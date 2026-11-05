@@ -58,7 +58,7 @@ function location(hit: Hit): string {
   }
 }
 
-function Highlighted(props: { text: string; positions?: number[] }) {
+export function Highlighted(props: { text: string; positions?: number[] }) {
   const marks = new Set(props.positions ?? []);
   return (
     <>

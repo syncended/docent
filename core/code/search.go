@@ -17,6 +17,7 @@ import (
 
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/query"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/syncended/docent/core/fuzzy"
 	"github.com/syncended/docent/core/symbols"
@@ -238,35 +239,55 @@ func regexQuery(pattern string, caseSensitive bool) (query.Q, error) {
 }
 
 func searchText(ctx context.Context, zq query.Q, limit, maxPerFile int) ([]Hit, error) {
-	names := rootNames()
-	// The shard directory may hold roots that are no longer configured.
-	ids := make([]string, 0, len(names))
-	for id := range names {
-		ids = append(ids, id)
-	}
-	zq = query.NewAnd(query.NewRepoSet(ids...), zq)
-	res, err := text.Search(ctx, zq, &zoekt.SearchOptions{
+	mu.RLock()
+	active := append([]*root(nil), roots...)
+	mu.RUnlock()
+
+	opts := &zoekt.SearchOptions{
 		MaxDocDisplayCount:   limit,
 		MaxMatchDisplayCount: limit * maxPerFile,
 		ShardMaxMatchCount:   10000,
 		TotalMaxMatchCount:   100000,
 		NumContextLines:      snippetBefore,
 		MaxWallTime:          3 * time.Second,
-	})
-	if err != nil {
+	}
+	// Each root has its own searcher; their best files are merged by score.
+	type rootFile struct {
+		fm   zoekt.FileMatch
+		name string
+	}
+	results := make([][]rootFile, len(active))
+	g, gctx := errgroup.WithContext(ctx)
+	for i, r := range active {
+		g.Go(func() error {
+			res, err := r.text.Search(gctx, zq, opts)
+			if err != nil {
+				return err
+			}
+			for _, fm := range res.Files {
+				results[i] = append(results[i], rootFile{fm: fm, name: r.name})
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
+	var files []rootFile
+	for _, rs := range results {
+		files = append(files, rs...)
+	}
+	sort.SliceStable(files, func(i, j int) bool { return files[i].fm.Score > files[j].fm.Score })
 
 	var hits []Hit
-	for _, fm := range res.Files {
-		name := names[fm.Repository]
+	for _, f := range files {
 		n := 0
-		for _, lm := range fm.LineMatches {
+		for _, lm := range f.fm.LineMatches {
 			if lm.FileName || n == maxPerFile {
 				continue
 			}
 			n++
-			hits = append(hits, textHit(fm, lm, name))
+			hits = append(hits, textHit(f.fm, lm, f.name))
 		}
 	}
 	return hits[:min(len(hits), limit)], nil
@@ -351,16 +372,6 @@ func Usages(ctx context.Context, ident string, limit int) ([]Hit, error) {
 		return nil, err
 	}
 	return searchText(ctx, zq, limit, 20)
-}
-
-func rootNames() map[string]string {
-	mu.RLock()
-	defer mu.RUnlock()
-	m := make(map[string]string, len(roots))
-	for _, r := range roots {
-		m[r.id] = r.name
-	}
-	return m
 }
 
 func rootPath(id string) string {

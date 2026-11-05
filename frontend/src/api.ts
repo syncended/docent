@@ -46,6 +46,9 @@ export interface Status {
   configPath: string;
   hotkey: string;
   indexing: boolean;
+  // project is the active project; projects lists them all.
+  project: string;
+  projects: string[];
   roots: RootInfo[];
 }
 
@@ -103,6 +106,11 @@ export interface Root {
   exclude: string[] | null;
 }
 
+export interface Project {
+  name: string;
+  roots: Root[];
+}
+
 export interface Agent {
   provider: "" | "anthropic" | "openai";
   model: string;
@@ -116,7 +124,8 @@ export interface Palette {
 export interface Settings {
   configPath: string;
   hotkey: string;
-  roots: Root[];
+  active: string;
+  projects: Project[];
   agent: Agent;
   palette: Palette;
   hasKey: boolean;
@@ -132,6 +141,32 @@ export const putSettings = (s: Settings) => request<Settings>("PUT", "/api/setti
 // calling window; "" if cancelled.
 export const pickFolder = (window: "palette" | "overview" = "palette") =>
   request<{ path: string }>("POST", "/api/pick-folder", { window }).then((r) => r.path);
+
+// addFolder is the first run's "Add folder…": a folder picked with the system
+// dialog goes into the active project, or a new one if there is none.
+export const addFolder = (window: "palette" | "overview" = "palette") => request<{ ok: boolean }>("POST", "/api/add-folder", { window });
+
+// ProjectSwitch is sent to both windows when the active project changes.
+export interface ProjectSwitch {
+  from: string;
+  to: string;
+}
+
+// switchProject makes a project active. switched is false while the overview
+// window asks about its unsaved edits first; it switches once they are saved
+// or discarded.
+export const switchProject = (name: string) => request<{ switched: boolean }>("POST", "/api/project/switch", { name });
+
+// newProject creates a project from a folder picked with the system dialog
+// and switches to it; name is "" if cancelled.
+export const newProject = (window: "palette" | "overview" = "palette") =>
+  request<{ name: string; switched: boolean }>("POST", "/api/project/new", { window });
+
+// showProjects summons the palette with the project list.
+export const showProjects = () => request<{ ok: boolean }>("POST", "/api/projects/show", {});
+
+// setOverviewDirty tells the shell whether the overview window has unsaved edits.
+export const setOverviewDirty = (dirty: boolean) => request<{ ok: boolean }>("POST", "/api/overview/dirty", { dirty: dirty ? "1" : "0" });
 
 export interface AgentEvent {
   kind: "turn" | "thinking" | "call" | "step" | "text" | "done" | "error";

@@ -46,8 +46,9 @@ Docent is a notepad with great search, not a development environment.
    and intermediate findings.
 4. **Unobtrusive.** Lives in the background, never steals focus unless summoned,
    and returns focus to where it was when dismissed.
-5. **Lightweight.** Minimal resource usage in the background. No projects,
-   workspaces or build configuration needed just to find something.
+5. **Lightweight.** Minimal resource usage in the background. No build
+   configuration needed just to find something; projects are optional and
+   stay out of sight until there is more than one.
 6. **Complements agents, doesn't replace them.** The agent window stays the
    primary tool; Docent covers the "find and look" use case.
 
@@ -66,6 +67,9 @@ Docent is a notepad with great search, not a development environment.
   definitions; the hotkey over the window searches and opens results in it.
 - **From a search to the overview.** Found something in the palette and want
   to look around it → `Cmd+Enter` → it opens as a tab in the overview window.
+- **Switch context.** Done with work code, on to a side project → hotkey →
+  `Cmd+P` → pick the project → search, the agent and the overview window now
+  see only its code; switching back restores the tabs left open there.
 
 ## Features
 
@@ -76,9 +80,24 @@ search bar, such as the tab shortcuts `#` and `@`, are taken as typed.
 
 ### Code sources
 
-- Docent searches local checkouts: the user adds folders, Docent indexes them.
-- Indexing can be limited to subdirectories, so that only the relevant part
-  of a large monorepo is indexed.
+- Docent searches local checkouts: the user adds folders (code roots),
+  Docent indexes them.
+- Indexing of a root can be limited to subdirectories, so that only the
+  relevant part of a large monorepo is indexed — say, a few services.
+- **Projects.** Roots are grouped into projects: named contexts such as
+  "Work" (several services of a monorepo plus a couple of other
+  repositories) and "Home". A root belongs to one project; the same folder
+  can be added to several projects, each with its own subdirectories.
+- **One active project.** The palette, the agent, the viewer and the
+  overview window see only the roots of the active project. Docent starts in
+  the project that was active when it last ran.
+- Only the active project is indexed and kept in memory. Other projects keep
+  their index on disk: switching to one opens its last index at once and
+  brings it up to date in the background, like indexing at startup.
+- Projects stay out of sight until there is a second one: with a single
+  project the palette shows no project name, and the first folder added goes
+  into a project created for it. `Cmd+P` still lists projects (see
+  [Switching projects](#switching-projects)).
 - The index is updated in the background as files change; search remains
   available while indexing is in progress.
 
@@ -132,6 +151,28 @@ Search modes are tabs, as in IntelliJ IDEA's Search Everywhere:
   when the query is submitted in the Agent tab. Typing alone never spends
   tokens.
 
+### Switching projects
+
+- `Cmd+P` lists the projects in the result card, the active one selected,
+  followed by "New project…" and "Manage projects…". It works with a single
+  project too, as the way to discover projects. Typing filters the list by
+  name (fuzzy, as in the Files tab); arrow keys move, `Enter` chooses, `Esc`
+  returns to the search with the query as it was.
+- With two or more projects the active project's name is also a pill next
+  to the gear by the palette tabs; clicking it opens the same list. With one
+  project there is no pill.
+- "New project…" opens the system folder picker; the project is created
+  with the folder as its root, named after it, and becomes active. It can be
+  renamed and given more roots in settings.
+- "Manage projects…" opens Settings at Projects.
+- After switching, the palette returns to the tab and query it had and runs
+  the query again in the new project. An agent answer is not re-run: the
+  Agent tab starts empty, so switching never spends tokens.
+- Switching with unsaved edits in the overview window asks to save, discard
+  or cancel, as closing the window does.
+- The overview window shows the active project's name in its tab bar and
+  switches along with the palette.
+
 ### Agents
 
 Two kinds of agents, interchangeable from the user's point of view:
@@ -148,6 +189,8 @@ For both kinds:
 
 - The agent searches with Docent's own tools (structural, file and text search,
   reading files), so it gets the same fast index as the palette.
+- The agent sees only the active project: its tools search and read the
+  project's roots and nothing else.
 - The agent is read-only: it cannot modify files or run commands through Docent.
 - Findings, progress and the final answer are shown the same way regardless of
   which agent produced them.
@@ -165,9 +208,11 @@ For both kinds:
 Opened with `Cmd+,` from the palette or the overview window, from the menu bar
 (tray) icon or the gear next to the palette tabs; shown in the palette window.
 
-- **Code roots:** add a folder with the system folder picker or by typing a
-  path, limit it to subdirectories, remove it. Saving re-indexes in the
-  background; search keeps working meanwhile.
+- **Projects:** add, rename and remove projects; the active one is shown
+  first. Removing the active project switches to another one.
+- **Code roots** of a project: add a folder with the system folder picker or
+  by typing a path, limit it to subdirectories, remove it. Saving re-indexes
+  the active project in the background; search keeps working meanwhile.
 - **Agent:** provider (Anthropic or OpenAI-compatible), model, optional base
   URL, API key. The key is written to the OS credential store and never shown
   again; it can be replaced or removed.
@@ -176,6 +221,8 @@ Opened with `Cmd+,` from the palette or the overview window, from the menu bar
 - Shows where the config file lives, for those who prefer editing it by hand.
 - First run: with no roots, the palette stays a compact bar and offers
   "Add folder…" (system folder picker, then indexing starts) and Settings.
+  The folder goes into a project named after it. A project with no roots
+  shows the same offer.
 - `Cmd+S` saves, `Esc` closes without saving. Both return to where settings
   were opened from: the palette, or — when opened from the overview window
   or the tray — that window or application, hiding the palette.
@@ -248,10 +295,15 @@ screen.
 - **Closing** the window leaves Docent running in the background; the hotkey
   still summons the palette. Until Docent restarts, the window reopens with
   the same tabs, tree state, size and position.
+- **Per project.** Tabs and tree state belong to the project: switching
+  projects (see [Switching projects](#switching-projects)) replaces them with
+  the other project's, and switching back restores them, until Docent
+  restarts. Size and position are shared.
 - While the window is open, Docent shows in the Dock and `Cmd+Tab` on macOS
   and on the taskbar on Windows; with the window closed it lives only in the
   menu bar (tray).
-- **Project tree** on the left: every code root as a top-level folder.
+- **Project tree** on the left: every code root of the active project as a
+  top-level folder.
   Folders expand and collapse; choosing a file opens it in a tab. The tree
   follows the active tab, expanded to its file. Keys as in the viewer's tree:
   `Cmd+1` shows the tree and focuses it, or hides it when it has focus; arrow
@@ -274,6 +326,8 @@ screen.
   and results chosen there open as tabs in the window (agent answers'
   links included). `Esc` returns to the window.
 - `Cmd+,` or the gear in the tab bar opens settings in the palette.
+- `Cmd+P` opens the project list in the palette. With two or more projects
+  the tab bar also shows the active project's name; clicking it does the same.
 - With no code roots the window offers "Add folder…" and Settings, as the
   palette does on first run.
 - Closing the window with unsaved edits in any tab asks to save, discard or
@@ -298,21 +352,25 @@ In scope:
 - Code sources: folders from the settings screen (stored in a config file),
   optionally limited to subdirectories. Indexing at startup, on demand and
   after settings change.
+- Projects: roots grouped into projects, one active; switching from the
+  palette and the overview window; only the active project indexed.
 - Structural search for the full language minimum (Kotlin, Java, C++, Go,
   Protobuf, JavaScript, TypeScript).
 - All palette tabs (All, Types, Symbols, Files, Text, Agent) with shortcut
   characters; results as snippets with preview.
 - Viewer: syntax highlighting, go to line, find in file, go to definition and
   find usages, basic editing and saving, project tree.
-- Overview window: opened on launch, project tree of all roots, editor tabs,
+- Overview window: opened on launch, project tree of the project's roots, editor tabs,
   definitions and usages in its results panel, palette results opening in it.
 - Built-in agent: Anthropic and OpenAI-compatible providers, one configured
   agent, API key in the OS credential store.
-- Settings screen for code roots and the agent.
+- Settings screen for projects, code roots and the agent.
 
 Out of scope (after MVP):
 
 - External agents over ACP; exposing search tools over MCP; several agents.
+- Per-project agents: a project overriding the global agent (e.g. a work
+  provider for work code).
 - Background index updates on file changes.
 - Navigation history in the viewer.
 - Navigating into library sources: definitions and usages outside the code
@@ -480,3 +538,24 @@ Decisions on open questions, with date and a short rationale.
   from a usage it is the way to the declaration, and on the declaration
   there is nowhere else to go, so the useful answer is where it is used.
   A context menu makes both discoverable without knowing the shortcuts.
+- **2026-11-05 — Projects: named groups of roots, one active.** One person
+  reads code in unrelated contexts — work services in a monorepo, Docent
+  itself, side projects — and mixing them makes results noisy. The project
+  scopes everything, not just search: the overview tree and tabs, and the
+  agent, so that a question about a side project never sends work code to a
+  provider. Only the active project is indexed, to stay light in the
+  background; switching opens the cached index at once. Projects stay
+  hidden until there are two, so a single folder still needs no setup;
+  roots from an existing config become a project named "Default". The
+  switcher is a pill and `Cmd+P` in the palette rather than a palette tab:
+  tabs are search modes, and a project is not one. Considered: a project
+  that filters only search (the tree and the agent would still mix
+  contexts) and keeping every project indexed (instant switching at the
+  cost of memory and CPU for code not being read). Per-project agents are
+  left for after the MVP.
+- **2026-11-05 — `Cmd+P` works with one project.** Hiding every trace of
+  projects until there are two left them reachable only through settings.
+  `Cmd+P` always opens the project list, with "New project…" and "Manage
+  projects…" at its end, so projects can be found from the keyboard; the
+  pill still appears only with two or more, so a single project shows
+  nothing extra. A new project starts from a folder, like the first run.

@@ -47,7 +47,7 @@ func setup(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	cfg := &config.Config{Roots: []config.Root{{Path: filepath.Join(dir, "repo")}}}
+	cfg := project(filepath.Join(dir, "repo"))
 	if err := Open(cfg, filepath.Join(dir, "cache")); err != nil {
 		t.Fatal(err)
 	}
@@ -55,22 +55,122 @@ func setup(t *testing.T) string {
 	if err := Reindex(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
-	// The searcher picks up new shards asynchronously.
+	waitText(t, "NewOrder")
+	return Roots()[0].ID
+}
+
+// project is a config with one active project of the given roots.
+func project(paths ...string) *config.Config {
+	p := config.Project{Name: "test"}
+	for _, path := range paths {
+		p.Roots = append(p.Roots, config.Root{Path: path})
+	}
+	return &config.Config{Active: p.Name, Projects: []config.Project{p}}
+}
+
+// waitText waits until text search finds q: searchers pick up new shards
+// asynchronously.
+func waitText(t *testing.T, q string) {
+	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		hits, err := SearchText(context.Background(), "NewOrder", 10)
+		hits, err := SearchText(context.Background(), q, 10)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(hits) > 0 {
-			break
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("text index did not load")
+			t.Fatalf("text index did not load %q", q)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return Roots()[0].ID
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for p, content := range files {
+		abs := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestProjects(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "cache")
+	work, home, side := filepath.Join(dir, "work"), filepath.Join(dir, "home"), filepath.Join(dir, "side")
+	writeFiles(t, work, map[string]string{"billing/invoice.go": "package billing\n\ntype Invoice struct{}\n", "auth/token.go": "package auth\n\ntype Token struct{}\n"})
+	writeFiles(t, home, map[string]string{"pet.go": "package pet\n\ntype Pet struct{}\n"})
+	writeFiles(t, side, map[string]string{"side.go": "package side\n\ntype Side struct{}\n"})
+	cfg := &config.Config{Active: "Work", Projects: []config.Project{
+		// Two roots, one of them limited to a subdirectory.
+		{Name: "Work", Roots: []config.Root{{Path: work, Include: []string{"billing"}}, {Path: side}}},
+		{Name: "Home", Roots: []config.Root{{Path: home}}},
+	}}
+	open := func() {
+		t.Helper()
+		if err := Open(cfg, cache); err != nil {
+			t.Fatal(err)
+		}
+		if err := Reindex(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open()
+	t.Cleanup(Close)
+	waitText(t, "Invoice")
+	waitText(t, "Side")
+	if got := titles(SearchTypes("Pet", 10)); len(got) != 0 {
+		t.Errorf("Work sees Home: %v", got)
+	}
+	if got := titles(SearchTypes("Token", 10)); len(got) != 0 {
+		t.Errorf("Work sees a subdirectory it does not include: %v", got)
+	}
+	if hits, _ := SearchText(context.Background(), "package", 10); len(hits) != 2 {
+		t.Errorf("SearchText(package) in Work = %v, want both roots", titles(hits))
+	}
+	workKeys := []string{cacheKey(cfg.Projects[0].Roots[0]), cacheKey(cfg.Projects[0].Roots[1])}
+	workID := Roots()[0].ID
+
+	cfg.Active = "Home"
+	open()
+	waitText(t, "Pet")
+	if got := titles(SearchTypes("Invoice", 10)); len(got) != 0 {
+		t.Errorf("Home sees Work: %v", got)
+	}
+	if hits, _ := SearchText(context.Background(), "Invoice", 10); len(hits) != 0 {
+		t.Errorf("Home text search sees Work: %v", titles(hits))
+	}
+	for _, key := range workKeys {
+		if !hasShards(key) {
+			t.Errorf("Work cache %s was dropped on switching", key)
+		}
+	}
+
+	// Changing a root's subdirectories keeps its ID, so open files still
+	// resolve, but gives it a new cache; the old one goes.
+	cfg.Active = "Work"
+	cfg.Projects[0].Roots[0].Include = []string{"auth"}
+	open()
+	waitText(t, "Token")
+	if got := Roots()[0].ID; got != workID {
+		t.Errorf("root ID changed with its subdirectories: %s → %s", workID, got)
+	}
+	if _, err := ReadFile(workID, "auth/token.go"); err != nil {
+		t.Errorf("ReadFile after changing subdirectories: %v", err)
+	}
+	if hasShards(workKeys[0]) {
+		t.Errorf("stale cache %s kept", workKeys[0])
+	}
+	if !hasShards(workKeys[1]) {
+		t.Errorf("cache %s of an unchanged root dropped", workKeys[1])
+	}
 }
 
 func titles(hits []Hit) []string {

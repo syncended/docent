@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
-import { AppWindow, ArrowLeft, CaseSensitive, ChevronDown, ChevronRight, File, FolderTree, PanelLeftClose, PanelLeftOpen, FolderPlus, LoaderCircle, Regex, Search, Settings as SettingsIcon, Shapes, Sparkles, SquareFunction, TextSearch, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowLeft, CaseSensitive, ChevronDown, ChevronRight, File, FolderTree, PanelLeftClose, PanelLeftOpen, FolderPlus, Layers, LoaderCircle, Regex, Search, Settings as SettingsIcon, Shapes, Sparkles, SquareFunction, TextSearch, type LucideIcon } from "lucide-react";
 import * as api from "./api";
 import type { Hit, Progress, Status, Tab } from "./api";
 import { Code, type At } from "./Code";
 import { definitionOrUsages, usages, type Where } from "./navigate";
 import { Settings } from "./Settings";
 import { Tree } from "./Tree";
-import { crumbs, RowView, sameHit, type Row } from "./Rows";
+import { crumbs, Highlighted, RowView, sameHit, type Row } from "./Rows";
 import { AgentAnswer, applyEvent, followUp, newRun, stepLabel, type Run } from "./Agent";
 import { altLabel, cmd, hotkeyLabel, isMac, modLabel } from "./keys";
 
@@ -26,6 +26,12 @@ type List = { title: string; hits: Hit[] };
 
 type Viewer = { hit: Hit; content: string };
 
+// Picker is the project list (DESIGN.md, Switching projects); its filter is
+// typed into the search bar in place of the query.
+type Picker = { filter: string; selected: number };
+
+type PickerRow = { kind: "project"; name: string; matches: number[] } | { kind: "new" } | { kind: "manage" };
+
 export function App() {
   const [mode, setMode] = useState<"palette" | "viewer" | "settings">("palette");
   const [tab, setTab] = useState<Tab>("all");
@@ -40,6 +46,7 @@ export function App() {
   const [rows, setRows] = useState<Row[]>([]);
   const [selected, setSelected] = useState(0);
   const [list, setList] = useState<List | null>(null);
+  const [picker, setPicker] = useState<Picker | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [indexVersion, setIndexVersion] = useState(0);
@@ -79,6 +86,8 @@ export function App() {
   const closeFile = useRef<() => void>(() => {});
   // toOverview handles Cmd+Enter in the viewer.
   const toOverview = useRef<() => boolean>(() => false);
+  // openPicker handles Cmd+P; called by the global key and event handlers.
+  const openPicker = useRef<() => void>(() => {});
 
   const focusInput = () => setTimeout(() => (input.current?.focus(), input.current?.select()), 0);
 
@@ -91,9 +100,29 @@ export function App() {
         afterPaint(api.present);
         overOverview.current = e.data === "overview";
         settingsReturn.current = null;
+        setPicker(null);
         if (modeRef.current === "viewer") return setCodeFocus((n) => n + 1);
         setMode("palette");
         focusInput();
+      }),
+      // Sent instead of palette:shown by the project pill and Cmd+P in the
+      // overview window.
+      Events.On("palette:projects", (e) => {
+        afterPaint(api.present);
+        overOverview.current = e.data === "overview";
+        settingsReturn.current = null;
+        openPicker.current();
+      }),
+      // The palette keeps its tab and query and searches the new project;
+      // an agent answer is not re-run (DESIGN.md, Switching projects).
+      Events.On("project:switched", () => {
+        setPicker(null);
+        setList(null);
+        setRun(null);
+        runId.current = 0;
+        if (modeRef.current === "viewer" && !dirtyRef.current) setMode("palette");
+        api.getStatus().then(setStatus);
+        setIndexVersion((v) => v + 1);
       }),
       Events.On("palette:search", () => toSearch.current()),
       // Sent instead of palette:shown when settings are opened from outside.
@@ -138,6 +167,9 @@ export function App() {
       } else if (e.code === "Comma") {
         e.preventDefault();
         if (!dirtyRef.current) setMode("settings");
+      } else if (e.code === "KeyP") {
+        e.preventDefault();
+        openPicker.current();
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -181,12 +213,23 @@ export function App() {
   const current = shownRows[selectable[Math.min(selected, selectable.length - 1)]];
   const currentHit = current?.type === "hit" ? current.hit : null;
 
+  const projects = status?.projects ?? [];
+  const pickerRows: PickerRow[] = picker
+    ? [...filterProjects(projects, picker.filter).map((p): PickerRow => ({ kind: "project", ...p })), { kind: "new" }, { kind: "manage" }]
+    : [];
+
   // The window is a Spotlight-like bar until there is something to show below it.
   const noRoots = status !== null && status.roots.length === 0;
   const showContext = !!(sidebarOpen && (contextRows.length > 0 || (agentView && run)));
   // The side column widens the viewer instead of narrowing the code.
   const layout: api.Layout =
-    mode === "viewer" ? (treeOpen || showContext ? "viewer-side" : "viewer") : mode === "settings" || list || shownRows.length > 0 || (tab === "agent" && run) ? "results" : "compact";
+    mode === "viewer"
+      ? treeOpen || showContext
+        ? "viewer-side"
+        : "viewer"
+      : mode === "settings" || picker || list || shownRows.length > 0 || (tab === "agent" && run)
+        ? "results"
+        : "compact";
   useEffect(() => {
     api.setLayout(layout);
   }, [layout]);
@@ -372,15 +415,75 @@ export function App() {
   // without going through settings.
   const addFolder = async () => {
     try {
-      const path = await api.pickFolder();
-      if (!path) return focusInput();
-      const s = await api.getSettings();
-      await api.putSettings({ ...s, roots: [...s.roots, { path, include: null, exclude: null }] });
+      await api.addFolder();
       setStatus(await api.getStatus());
       focusInput();
     } catch (e) {
       setNotice((e as Error).message);
     }
+  };
+
+  openPicker.current = () => {
+    if (mode === "settings") return;
+    if (mode === "viewer") {
+      if (dirty) return setNotice("Save or discard changes before switching projects");
+      setMode("palette");
+    }
+    setPicker({ filter: "", selected: Math.max(projects.indexOf(status?.project ?? ""), 0) });
+    setNotice("");
+    focusInput();
+    // A project added without switching to it is not in the status yet.
+    api.getStatus().then((s) => {
+      setStatus(s);
+      setPicker((p) => (p && p.filter === "" ? { ...p, selected: Math.max(s.projects.indexOf(s.project), 0) } : p));
+    });
+  };
+
+  const closePicker = () => {
+    setPicker(null);
+    focusInput();
+  };
+
+  const choose = async (row?: PickerRow) => {
+    if (!row) return;
+    try {
+      if (row.kind === "manage") {
+        setPicker(null);
+        setMode("settings");
+      } else if (row.kind === "new") {
+        // The switch itself closes the list (project:switched).
+        if (!(await api.newProject()).name) focusInput();
+      } else if (row.name === status?.project) {
+        closePicker();
+      } else {
+        await api.switchProject(row.name);
+      }
+    } catch (e) {
+      setNotice((e as Error).message);
+    }
+  };
+
+  const onPickerKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!picker) return;
+    switch (e.key) {
+      case "ArrowDown":
+        setPicker({ ...picker, selected: Math.min(picker.selected + 1, pickerRows.length - 1) });
+        break;
+      case "ArrowUp":
+        setPicker({ ...picker, selected: Math.max(picker.selected - 1, 0) });
+        break;
+      case "Enter":
+        choose(pickerRows[picker.selected]);
+        break;
+      case "Escape":
+        closePicker();
+        break;
+      case "Tab":
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
   };
 
   stepResult.current = (dir) => {
@@ -464,18 +567,32 @@ export function App() {
         <>
           <div className="search drag">
             <Search className="search-icon" size={20} strokeWidth={2} aria-hidden />
-            <input
-              ref={input}
-              className="query"
-              value={query}
-              placeholder={noRoots ? "Add a folder to start searching" : placeholder(tab)}
-              spellCheck={false}
-              onChange={(e) => (setList(null), setQuery(e.target.value))}
-              onKeyDown={onKeyDown}
-            />
+            {picker ? (
+              <input
+                ref={input}
+                className="query"
+                value={picker.filter}
+                placeholder="Switch to project"
+                spellCheck={false}
+                onChange={(e) => setPicker({ filter: e.target.value, selected: 0 })}
+                onKeyDown={onPickerKey}
+              />
+            ) : (
+              <input
+                ref={input}
+                className="query"
+                value={query}
+                placeholder={noRoots ? "Add a folder to start searching" : placeholder(tab)}
+                spellCheck={false}
+                onChange={(e) => (setList(null), setQuery(e.target.value))}
+                onKeyDown={onKeyDown}
+              />
+            )}
           </div>
           <nav className="tabs">
-            {noRoots ? (
+            {picker ? (
+              <span className="tab active">Projects · Esc to go back</span>
+            ) : noRoots ? (
               <>
                 <button className="tab active" onClick={addFolder}>
                   <FolderPlus size={14} strokeWidth={2} />
@@ -497,7 +614,7 @@ export function App() {
                 </button>
               ))
             )}
-            {tab === "text" && !list && !noRoots && (
+            {tab === "text" && !list && !picker && !noRoots && (
               <>
                 <button className={regex ? "tab icon active" : "tab icon"} title={`Regex (${altLabel}R)`} onClick={() => (setRegex(!regex), focusInput())}>
                   <Regex size={14} strokeWidth={2} />
@@ -517,13 +634,74 @@ export function App() {
                 {progress.root} {Math.round((100 * progress.done) / Math.max(progress.total, 1))}%
               </span>
             )}
+            {projects.length > 1 && !picker && (
+              <button
+                className={progress ? "tab project after-progress" : "tab project"}
+                title={`Switch project (${modLabel}P)`}
+                onClick={() => openPicker.current()}
+              >
+                <Layers size={14} strokeWidth={2} />
+                {status?.project}
+              </button>
+            )}
             {!noRoots && (
-              <button className={progress ? "tab gear after-progress" : "tab gear"} title={`Settings (${modLabel},)`} onClick={() => setMode("settings")}>
+              <button
+                className={progress || projects.length > 1 ? "tab gear after-progress" : "tab gear"}
+                title={`Settings (${modLabel},)`}
+                onClick={() => setMode("settings")}
+              >
                 <SettingsIcon size={14} strokeWidth={2} />
               </button>
             )}
           </nav>
-          {layout === "results" && (
+          {layout === "results" && picker && (
+            <div className="card">
+              <main className="body">
+                <section className="results">
+                  {pickerRows.map((row, i) => (
+                    <div
+                      key={row.kind === "project" ? `p:${row.name}` : row.kind}
+                      className={i === picker.selected ? "row picker-row selected" : "row picker-row"}
+                      onMouseEnter={() => setPicker({ ...picker, selected: i })}
+                      onClick={() => choose(row)}
+                    >
+                      <div className="row-main">
+                        {row.kind === "project" ? (
+                          <>
+                            <span className="kind k-project">
+                              <Layers size={15} />
+                            </span>
+                            <span className="title">
+                              <Highlighted text={row.name} positions={row.matches} />
+                            </span>
+                            {row.name === status?.project && <span className="location">active</span>}
+                          </>
+                        ) : row.kind === "new" ? (
+                          <>
+                            <span className="kind k-project">
+                              <FolderPlus size={15} />
+                            </span>
+                            <span className="title">New project…</span>
+                            <span className="location">from a folder</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="kind k-project">
+                              <SettingsIcon size={15} />
+                            </span>
+                            <span className="title">Manage projects…</span>
+                            <span className="location">settings</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              </main>
+              {footer}
+            </div>
+          )}
+          {layout === "results" && !picker && (
             <div className="card">
               <main className="body">
                 <section className="results">
@@ -713,7 +891,27 @@ export function statusLine(status: Status | null, progress: Progress | null): st
   const files = status.roots.reduce((n, r) => n + r.files, 0);
   const symbols = status.roots.reduce((n, r) => n + r.symbols, 0);
   const roots = status.roots.length === 1 ? "1 root" : `${status.roots.length} roots`;
-  return `${roots} · ${files.toLocaleString()} files · ${symbols.toLocaleString()} symbols`;
+  // The project is named only once there is more than one.
+  const project = status.projects.length > 1 ? `${status.project} · ` : "";
+  return `${project}${roots} · ${files.toLocaleString()} files · ${symbols.toLocaleString()} symbols`;
+}
+
+// filterProjects keeps the projects whose names contain the filter's
+// characters in order, ignoring case, with the matched positions; names
+// where they are closer together come first.
+export function filterProjects(names: string[], filter: string): { name: string; matches: number[] }[] {
+  const want = Array.from(filter.toLowerCase().replace(/\s+/g, ""));
+  const found: { name: string; matches: number[]; span: number }[] = [];
+  for (const name of names) {
+    const chars = Array.from(name.toLowerCase());
+    const matches: number[] = [];
+    for (let i = 0; i < chars.length && matches.length < want.length; i++) {
+      if (chars[i] === want[matches.length]) matches.push(i);
+    }
+    if (matches.length < want.length) continue;
+    found.push({ name, matches, span: matches.length ? matches[matches.length - 1] - matches[0] : 0 });
+  }
+  return found.sort((a, b) => a.span - b.span).map(({ name, matches }) => ({ name, matches }));
 }
 
 const fileCache = new Map<string, string>();

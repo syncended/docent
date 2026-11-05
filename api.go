@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
+
 	"github.com/syncended/docent/core/agent"
 	"github.com/syncended/docent/core/code"
 	"github.com/syncended/docent/core/config"
@@ -39,6 +41,11 @@ func apiMiddleware(next http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/settings", handleGetSettings)
 	mux.HandleFunc("PUT /api/settings", handlePutSettings)
 	mux.HandleFunc("POST /api/pick-folder", handlePickFolder)
+	mux.HandleFunc("POST /api/add-folder", handleAddFolder)
+	mux.HandleFunc("POST /api/project/switch", handleSwitchProject)
+	mux.HandleFunc("POST /api/project/new", handleNewProject)
+	mux.HandleFunc("POST /api/projects/show", handleShowProjects)
+	mux.HandleFunc("POST /api/overview/dirty", handleOverviewDirty)
 	mux.HandleFunc("POST /api/highlight", handleHighlight)
 	mux.HandleFunc("POST /api/agent/ask", handleAgentAsk)
 	mux.HandleFunc("POST /api/agent/stop", handleAgentStop)
@@ -52,14 +59,21 @@ func apiMiddleware(next http.Handler) http.Handler {
 }
 
 type status struct {
-	ConfigPath string          `json:"configPath"`
-	Hotkey     string          `json:"hotkey"`
-	Indexing   bool            `json:"indexing"`
-	Roots      []code.RootInfo `json:"roots"`
+	ConfigPath string `json:"configPath"`
+	Hotkey     string `json:"hotkey"`
+	Indexing   bool   `json:"indexing"`
+	// Project is the active project; Projects lists them all.
+	Project  string          `json:"project"`
+	Projects []string        `json:"projects"`
+	Roots    []code.RootInfo `json:"roots"`
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, status{ConfigPath: configPath, Hotkey: hotkey, Indexing: indexing.Load(), Roots: code.Roots()})
+	cfg := current.Load()
+	writeJSON(w, status{
+		ConfigPath: configPath, Hotkey: hotkey, Indexing: indexing.Load(),
+		Project: cfg.Active, Projects: projectNames(cfg), Roots: code.Roots(),
+	})
 }
 
 func handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -226,12 +240,13 @@ func handleReindex(w http.ResponseWriter, r *http.Request) {
 // settings is what the settings screen edits. The API key is write-only:
 // reads report only whether one is stored.
 type settings struct {
-	ConfigPath string         `json:"configPath"`
-	Hotkey     string         `json:"hotkey"`
-	Roots      []config.Root  `json:"roots"`
-	Agent      config.Agent   `json:"agent"`
-	Palette    config.Palette `json:"palette"`
-	HasKey     bool           `json:"hasKey"`
+	ConfigPath string           `json:"configPath"`
+	Hotkey     string           `json:"hotkey"`
+	Active     string           `json:"active"`
+	Projects   []config.Project `json:"projects"`
+	Agent      config.Agent     `json:"agent"`
+	Palette    config.Palette   `json:"palette"`
+	HasKey     bool             `json:"hasKey"`
 	// APIKey, if not empty, replaces the stored key; ClearKey removes it.
 	APIKey   string `json:"apiKey,omitempty"`
 	ClearKey bool   `json:"clearKey,omitempty"`
@@ -248,11 +263,17 @@ func handleGetSettings(w http.ResponseWriter, r *http.Request) {
 
 func currentSettings(cfg *config.Config) settings {
 	key, _ := secrets.APIKey(cfg.Agent.Provider)
-	roots := cfg.Roots
-	if roots == nil {
-		roots = []config.Root{}
+	projects := make([]config.Project, len(cfg.Projects))
+	for i, p := range cfg.Projects {
+		if p.Roots == nil {
+			p.Roots = []config.Root{}
+		}
+		projects[i] = p
 	}
-	return settings{ConfigPath: configPath, Hotkey: hotkey, Roots: roots, Agent: cfg.Agent, Palette: cfg.Palette, HasKey: key != ""}
+	return settings{
+		ConfigPath: configPath, Hotkey: hotkey, Active: cfg.Active, Projects: projects,
+		Agent: cfg.Agent, Palette: cfg.Palette, HasKey: key != "",
+	}
 }
 
 func handlePutSettings(w http.ResponseWriter, r *http.Request) {
@@ -261,21 +282,34 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	cfg := &config.Config{Agent: in.Agent, Palette: in.Palette}
-	for _, root := range in.Roots {
-		root.Path = strings.TrimSpace(root.Path)
-		if root.Path == "" {
-			continue
-		}
-		if strings.HasPrefix(root.Path, "~/") {
-			home, _ := os.UserHomeDir()
-			root.Path = filepath.Join(home, root.Path[2:])
-		}
-		if info, err := os.Stat(root.Path); err != nil || !info.IsDir() {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("%s is not a directory", root.Path))
+	configMu.Lock()
+	defer configMu.Unlock()
+	cfg := &config.Config{Active: in.Active, Agent: in.Agent, Palette: in.Palette}
+	for _, p := range in.Projects {
+		p.Name = strings.TrimSpace(p.Name)
+		if p.Name == "" {
+			writeError(w, http.StatusBadRequest, errString("a project needs a name"))
 			return
 		}
-		cfg.Roots = append(cfg.Roots, root)
+		if config.ProjectIndex(cfg, p.Name) >= 0 {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("two projects are named %q", p.Name))
+			return
+		}
+		roots, err := validRoots(p.Roots)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		cfg.Projects = append(cfg.Projects, config.Project{Name: p.Name, Roots: roots})
+	}
+	if config.ProjectIndex(cfg, cfg.Active) < 0 && len(cfg.Projects) > 0 {
+		cfg.Active = cfg.Projects[0].Name
+	}
+	// Changing the active project here would drop the overview window's
+	// unsaved edits, which a switch asks about.
+	if overviewDirty.Load() && cfg.Active != current.Load().Active {
+		writeError(w, http.StatusConflict, errString("save or discard the unsaved changes in the overview window first"))
+		return
 	}
 	if provider := cfg.Agent.Provider; provider != "" {
 		var err error
@@ -297,12 +331,72 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, currentSettings(cfg))
 }
 
-func handlePickFolder(w http.ResponseWriter, r *http.Request) {
-	parent := palette
-	if r.URL.Query().Get("window") == "overview" {
-		parent = overview
+// validRoots trims and checks the roots of a project from the settings screen.
+func validRoots(in []config.Root) ([]config.Root, error) {
+	var roots []config.Root
+	for _, root := range in {
+		root.Path = strings.TrimSpace(root.Path)
+		if root.Path == "" {
+			continue
+		}
+		if strings.HasPrefix(root.Path, "~/") {
+			home, _ := os.UserHomeDir()
+			root.Path = filepath.Join(home, root.Path[2:])
+		}
+		if info, err := os.Stat(root.Path); err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("%s is not a directory", root.Path)
+		}
+		roots = append(roots, root)
 	}
-	path, err := pickFolder(parent)
+	return roots, nil
+}
+
+// callingWindow is the window a request came from, per ?window.
+func callingWindow(r *http.Request) *application.WebviewWindow {
+	if r.URL.Query().Get("window") == "overview" {
+		return overview
+	}
+	return palette
+}
+
+func handleAddFolder(w http.ResponseWriter, r *http.Request) {
+	if err := addFolder(callingWindow(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handleSwitchProject(w http.ResponseWriter, r *http.Request) {
+	switched, err := switchProject(r.URL.Query().Get("name"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"switched": switched})
+}
+
+func handleNewProject(w http.ResponseWriter, r *http.Request) {
+	name, switched, err := newProject(callingWindow(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, map[string]any{"name": name, "switched": switched})
+}
+
+func handleShowProjects(w http.ResponseWriter, r *http.Request) {
+	showProjects()
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handleOverviewDirty(w http.ResponseWriter, r *http.Request) {
+	overviewDirty.Store(r.URL.Query().Get("dirty") == "1")
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handlePickFolder(w http.ResponseWriter, r *http.Request) {
+	path, err := pickFolder(callingWindow(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

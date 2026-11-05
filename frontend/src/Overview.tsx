@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { Events, Window } from "@wailsio/runtime";
-import { Copy, FolderPlus, FolderTree, LoaderCircle, Minus, Settings as SettingsIcon, Square, X } from "lucide-react";
+import { Copy, FolderPlus, FolderTree, Layers, LoaderCircle, Minus, Settings as SettingsIcon, Square, X } from "lucide-react";
 import * as api from "./api";
 import type { Hit, Progress, Status } from "./api";
 import { Code, type At } from "./Code";
@@ -26,6 +26,14 @@ type FileTab = {
 // Results is the results panel: definitions or usages to choose from.
 type Results = { title: string; hits: Hit[]; selected: number };
 
+// ProjectView is what the window keeps of a project while another one is
+// active: its tabs and the tree (DESIGN.md, Overview window).
+type ProjectView = { tabs: FileTab[]; active: number; treeOpen: boolean };
+
+// Prompt asks about unsaved edits before closing the window or switching
+// to another project.
+type Prompt = { kind: "close" } | { kind: "switch"; project: string };
+
 let nextTab = 1;
 
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -50,16 +58,28 @@ export function Overview() {
   const [notice, setNotice] = useState("");
   // discardArmed is the tab whose next close discards its edits.
   const [discardArmed, setDiscardArmed] = useState(0);
-  // closing shows the prompt about unsaved edits when the window is closed.
-  const [closing, setClosing] = useState(false);
+  // prompt asks about unsaved edits before closing or switching projects.
+  const [prompt, setPrompt] = useState<Prompt | null>(null);
+  // views are the other projects' tabs, by project name, until Docent restarts.
+  const views = useRef(new Map<string, ProjectView>());
   const texts = useRef(new Map<number, MutableRefObject<(() => string) | null>>());
   const panel = useRef<HTMLDivElement>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
-  const maximised = useMaximised();
+  const viewRef = useRef<ProjectView>({ tabs, active, treeOpen });
+  viewRef.current = { tabs, active, treeOpen };
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  const { maximised, fullscreen } = useWindowState();
 
   const tab = tabs.find((t) => t.id === active) ?? null;
   const dirtyTabs = tabs.filter((t) => t.dirty);
+  const anyDirty = dirtyTabs.length > 0;
+
+  // The shell asks about these edits before switching projects.
+  useEffect(() => {
+    api.setOverviewDirty(anyDirty);
+  }, [anyDirty]);
 
   const openFile = async (hit: Hit, draft?: string) => {
     setNotice("");
@@ -123,13 +143,58 @@ export function Overview() {
 
   // requestClose handles the window's close button: hide, or ask first.
   const requestClose = () => {
-    if (tabsRef.current.some((t) => t.dirty)) setClosing(true);
+    if (tabsRef.current.some((t) => t.dirty)) setPrompt({ kind: "close" });
     else api.hideOverview();
   };
 
+  // switched puts this project's tabs away and brings back the new one's.
+  // Renaming the active project in settings also switches, from a name that
+  // is gone to one never seen: the tabs then stay, as far as their roots do.
+  const switched = async ({ from, to }: api.ProjectSwitch) => {
+    const next = await api.getStatus();
+    const current = viewRef.current;
+    const renamed = !views.current.has(to) && !next.projects.includes(from);
+    const ids = new Set(next.roots.map((r) => r.id));
+    let view: ProjectView = views.current.get(to) ?? { tabs: [], active: 0, treeOpen: true };
+    if (renamed) {
+      const kept = current.tabs.filter((t) => ids.has(t.hit.root));
+      view = { ...current, tabs: kept, active: kept.some((t) => t.id === current.active) ? current.active : (kept[0]?.id ?? 0) };
+    } else if (from) {
+      views.current.set(from, current);
+    }
+    views.current.delete(to);
+    for (const name of views.current.keys()) if (!next.projects.includes(name)) views.current.delete(name);
+    // Files may have changed while the project was away, saved edits included.
+    const tabs = await Promise.all(
+      view.tabs.map(async (t) => (renamed ? t : { ...t, content: await api.readFile(t.hit.root, t.hit.path).catch(() => t.content), draft: undefined, rev: t.rev + 1 })),
+    );
+    for (const t of current.tabs) if (!tabs.some((x) => x.id === t.id)) texts.current.delete(t.id);
+    setStatus(next);
+    setTabs(tabs);
+    setActive(view.active);
+    setTreeOpen(view.treeOpen);
+    setTreeReveal(null);
+    setResults(null);
+    setDiscardArmed(0);
+    setNotice("");
+    setCodeFocus((n) => n + 1);
+  };
+
+  // requestSwitch is the shell asking to switch with unsaved edits here.
+  const requestSwitch = async (project: string) => {
+    if (tabsRef.current.some((t) => t.dirty)) return setPrompt({ kind: "switch", project });
+    // The shell's flag lagged behind: clear it first, or it asks here again.
+    try {
+      await api.setOverviewDirty(false);
+      await api.switchProject(project);
+    } catch (e) {
+      setNotice((e as Error).message);
+    }
+  };
+
   // Event handlers are registered once; they call the latest versions.
-  const handlers = useRef({ openFile, requestClose });
-  handlers.current = { openFile, requestClose };
+  const handlers = useRef({ openFile, requestClose, requestSwitch, switched });
+  handlers.current = { openFile, requestClose, requestSwitch, switched };
 
   useEffect(() => {
     api.getStatus().then(setStatus);
@@ -139,6 +204,8 @@ export function Overview() {
         handlers.current.openFile(hit, content ?? undefined);
       }),
       Events.On("overview:close", () => handlers.current.requestClose()),
+      Events.On("overview:switch", (e) => handlers.current.requestSwitch(e.data as string)),
+      Events.On("project:switched", (e) => handlers.current.switched(e.data as api.ProjectSwitch)),
       Events.On("index:progress", (e) => setProgress(e.data as Progress)),
       Events.On("index:done", () => {
         setProgress(null);
@@ -192,22 +259,34 @@ export function Overview() {
     }
   };
 
-  const saveAllAndClose = async () => {
+  // afterPrompt closes the window or switches projects, once the edits it
+  // asked about are saved or discarded.
+  const afterPrompt = async (p: Prompt) => {
+    setPrompt(null);
+    if (p.kind === "close") return api.hideOverview();
+    try {
+      await api.setOverviewDirty(false);
+      await api.switchProject(p.project);
+    } catch (e) {
+      setNotice((e as Error).message);
+    }
+  };
+
+  const saveAll = async (p: Prompt) => {
     try {
       for (const t of dirtyTabs) {
         const text = texts.current.get(t.id)?.current?.();
         if (text !== undefined) await api.writeFile(t.hit.root, t.hit.path, text);
       }
       setTabs((ts) => ts.map((t) => (t.dirty ? { ...t, dirty: false } : t)));
-      setClosing(false);
-      api.hideOverview();
+      afterPrompt(p);
     } catch (e) {
       setNotice((e as Error).message);
     }
   };
 
-  // discardAndClose reloads edited tabs from disk and hides the window.
-  const discardAndClose = async () => {
+  // discardAll reloads edited tabs from disk.
+  const discardAll = async (p: Prompt) => {
     const reloaded = await Promise.all(
       tabs.map(async (t) => {
         if (!t.dirty) return t;
@@ -223,8 +302,7 @@ export function Overview() {
     );
     setTabs(reloaded);
     setDiscardArmed(0);
-    setClosing(false);
-    api.hideOverview();
+    afterPrompt(p);
   };
 
   const go = (where: Where) => {
@@ -299,13 +377,7 @@ export function Overview() {
 
   const addFolder = async () => {
     try {
-      const path = await api.pickFolder("overview");
-      if (!path) return;
-      const s = await api.getSettings();
-      await api.putSettings({
-        ...s,
-        roots: [...s.roots, { path, include: null, exclude: null }],
-      });
+      await api.addFolder("overview");
       setStatus(await api.getStatus());
     } catch (e) {
       setNotice((e as Error).message);
@@ -337,6 +409,9 @@ export function Overview() {
       case "Comma":
         api.openSettings();
         return true;
+      case "KeyP":
+        api.showProjects();
+        return true;
     }
     return false;
   };
@@ -361,7 +436,7 @@ export function Overview() {
 
   return (
     <div className={isMac ? "overview" : maximised ? "overview frameless maximised" : "overview frameless"}>
-      <nav className={isMac ? "ov-top mac" : "ov-top"}>
+      <nav className={isMac ? (fullscreen ? "ov-top mac fullscreen" : "ov-top mac") : "ov-top"}>
         {!noRoots && (
           <button
             className={treeOpen ? "tab icon active" : "tab icon"}
@@ -388,6 +463,12 @@ export function Overview() {
             </div>
           ))}
         </div>
+        {status && status.projects.length > 1 && (
+          <button className="tab project" title={`Switch project (${modLabel}P)`} onClick={() => api.showProjects()}>
+            <Layers size={14} strokeWidth={2} />
+            {status.project}
+          </button>
+        )}
         <button className="tab icon" title={`Settings (${modLabel},)`} onClick={() => api.openSettings()}>
           <SettingsIcon size={14} strokeWidth={2} />
         </button>
@@ -396,7 +477,7 @@ export function Overview() {
       <div className="ov-body">
         {treeOpen && !noRoots && (
           <aside className="card ov-side">
-            <div className="ov-side-title">Project</div>
+            <div className="ov-side-title">{status && status.projects.length > 1 ? status.project : "Project"}</div>
             <Tree
               roots={status?.roots ?? []}
               file={tab?.hit ?? null}
@@ -478,6 +559,8 @@ export function Overview() {
                       </dd>
                       <dt>Find usages</dt>
                       <dd>{keys(`${altLabel}F7`)}</dd>
+                      <dt>Switch project</dt>
+                      <dd>{keys(`${modLabel}P`)}</dd>
                       <dt>Settings</dt>
                       <dd>{keys(`${modLabel},`)}</dd>
                     </dl>
@@ -485,16 +568,19 @@ export function Overview() {
                 </div>
               )}
             </main>
-            {closing && (
+            {prompt && (
               <div className="ov-prompt">
-                <span>Unsaved changes in {dirtyTabs.length === 1 ? fileName(dirtyTabs[0].hit.path) : `${dirtyTabs.length} files`}</span>
-                <button className="pill active" onClick={saveAllAndClose}>
+                <span>
+                  Unsaved changes in {dirtyTabs.length === 1 ? fileName(dirtyTabs[0].hit.path) : `${dirtyTabs.length} files`}
+                  {prompt.kind === "switch" && ` · switching to ${prompt.project}`}
+                </span>
+                <button className="pill active" onClick={() => saveAll(prompt)}>
                   Save
                 </button>
-                <button className="pill" onClick={discardAndClose}>
+                <button className="pill" onClick={() => discardAll(prompt)}>
                   Discard
                 </button>
-                <button className="pill" onClick={() => setClosing(false)}>
+                <button className="pill" onClick={() => setPrompt(null)}>
                   Cancel
                 </button>
               </div>
@@ -554,15 +640,20 @@ function WindowButtons({ maximised }: { maximised: boolean }) {
   );
 }
 
-// useMaximised reports whether the window is maximised: it then has square
-// corners and shows the restore button.
-function useMaximised(): boolean {
+// useWindowState reports whether the window is maximised, when it has
+// square corners and shows the restore button, and whether it is full
+// screen, when macOS hides the traffic lights.
+function useWindowState(): { maximised: boolean; fullscreen: boolean } {
   const [maximised, setMaximised] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
-    const update = () => Window.IsMaximised().then(setMaximised);
+    const update = () => {
+      Window.IsMaximised().then(setMaximised);
+      Window.IsFullscreen().then(setFullscreen);
+    };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
-  return maximised;
+  return { maximised, fullscreen };
 }
