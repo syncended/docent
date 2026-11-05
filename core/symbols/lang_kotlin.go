@@ -18,7 +18,7 @@ var kotlinSpec = &spec{
 `,
 	local: set("function_body", "lambda_literal", "anonymous_initializer", "getter", "setter"),
 	// class_declaration covers classes, interfaces and enum classes.
-	refine: func(n *sitter.Node, k Kind) Kind {
+	refine: func(n *sitter.Node, _ []byte, k Kind) Kind {
 		if k != Class {
 			return k
 		}

@@ -22,9 +22,14 @@ type spec struct {
 	// namespaces lists node types whose body is not a local scope even if
 	// its node type is listed in local (TypeScript namespaces).
 	namespaces map[string]bool
-	// refine adjusts the kind using the declaration node, when the grammar
-	// does not distinguish kinds by node type.
-	refine func(n *sitter.Node, k Kind) Kind
+	// refine adjusts the kind using the declaration node and the source,
+	// when the grammar does not distinguish kinds by node type; "" skips
+	// the declaration.
+	refine func(n *sitter.Node, src []byte, k Kind) Kind
+	// scripts names the language of the <script> blocks of component files
+	// (Svelte, Vue): the file is parsed only to find them, and the
+	// declarations are those of the blocks.
+	scripts string
 
 	once sync.Once
 	q    *sitter.Query
@@ -84,4 +89,6 @@ var specs = map[string]*spec{
 	"sql":        sqlSpec,
 	"css":        cssSpec,
 	"hcl":        hclSpec,
+	"svelte":     svelteSpec,
+	"vue":        vueSpec,
 }
