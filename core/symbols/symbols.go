@@ -88,6 +88,61 @@ func Extract(ctx context.Context, lang string, src []byte) ([]Symbol, error) {
 	if !ok {
 		return nil, fmt.Errorf("unsupported language %q", lang)
 	}
+	if spec.scripts != "" {
+		return extractScripts(ctx, spec, src)
+	}
+	return extract(ctx, spec, src)
+}
+
+// extractScripts returns the declarations in the <script> blocks of a
+// component file, at their positions in the file.
+func extractScripts(ctx context.Context, spec *spec, src []byte) ([]Symbol, error) {
+	parser := sitter.NewParser()
+	defer parser.Close()
+	parser.SetLanguage(spec.language)
+	tree, err := parser.ParseCtx(ctx, nil, src)
+	if err != nil {
+		return nil, err
+	}
+	defer tree.Close()
+
+	var out []Symbol
+	var walk func(n *sitter.Node) error
+	walk = func(n *sitter.Node) error {
+		if n.Type() == "script_element" {
+			for i := 0; i < int(n.NamedChildCount()); i++ {
+				raw := n.NamedChild(i)
+				if raw.Type() != "raw_text" {
+					continue
+				}
+				syms, err := extract(ctx, specs[spec.scripts], src[raw.StartByte():raw.EndByte()])
+				if err != nil {
+					return err
+				}
+				at := raw.StartPoint()
+				for _, s := range syms {
+					if s.Line == 1 {
+						s.Column += int(at.Column)
+					}
+					s.Line += int(at.Row)
+					s.Start += raw.StartByte()
+					s.End += raw.StartByte()
+					out = append(out, s)
+				}
+			}
+			return nil
+		}
+		for i := 0; i < int(n.NamedChildCount()); i++ {
+			if err := walk(n.NamedChild(i)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return out, walk(tree.RootNode())
+}
+
+func extract(ctx context.Context, spec *spec, src []byte) ([]Symbol, error) {
 	q, err := spec.compile()
 	if err != nil {
 		return nil, err
@@ -128,7 +183,9 @@ func Extract(ctx context.Context, lang string, src []byte) ([]Symbol, error) {
 		}
 		d.pattern = m.PatternIndex
 		if spec.refine != nil {
-			d.kind = spec.refine(d.node, d.kind)
+			if d.kind = spec.refine(d.node, src, d.kind); d.kind == "" {
+				continue
+			}
 		}
 		start := d.name.StartByte()
 		if prev, ok := byStart[start]; ok && prev.pattern <= d.pattern {
