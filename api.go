@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -60,8 +61,9 @@ func apiMiddleware(next http.Handler) http.Handler {
 
 type status struct {
 	ConfigPath string `json:"configPath"`
-	Hotkey     string `json:"hotkey"`
-	Indexing   bool   `json:"indexing"`
+	// Shortcuts is every command's binding (shortcuts.go).
+	Shortcuts map[string]string `json:"shortcuts"`
+	Indexing  bool              `json:"indexing"`
 	// Project is the active project; Projects lists them all.
 	Project  string          `json:"project"`
 	Projects []string        `json:"projects"`
@@ -71,7 +73,7 @@ type status struct {
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := current.Load()
 	writeJSON(w, status{
-		ConfigPath: configPath, Hotkey: hotkey, Indexing: indexing.Load(),
+		ConfigPath: configPath, Shortcuts: resolveShortcuts(cfg), Indexing: indexing.Load(),
 		Project: cfg.Active, Projects: projectNames(cfg), Roots: code.Roots(),
 	})
 }
@@ -241,12 +243,15 @@ func handleReindex(w http.ResponseWriter, r *http.Request) {
 // reads report only whether one is stored.
 type settings struct {
 	ConfigPath string           `json:"configPath"`
-	Hotkey     string           `json:"hotkey"`
 	Active     string           `json:"active"`
 	Projects   []config.Project `json:"projects"`
 	Agent      config.Agent     `json:"agent"`
 	Palette    config.Palette   `json:"palette"`
-	HasKey     bool             `json:"hasKey"`
+	// Shortcuts is every command's binding; Commands lists the commands
+	// with their defaults (shortcuts.go).
+	Shortcuts map[string]string `json:"shortcuts"`
+	Commands  []command         `json:"commands"`
+	HasKey    bool              `json:"hasKey"`
 	// APIKey, if not empty, replaces the stored key; ClearKey removes it.
 	APIKey   string `json:"apiKey,omitempty"`
 	ClearKey bool   `json:"clearKey,omitempty"`
@@ -271,8 +276,8 @@ func currentSettings(cfg *config.Config) settings {
 		projects[i] = p
 	}
 	return settings{
-		ConfigPath: configPath, Hotkey: hotkey, Active: cfg.Active, Projects: projects,
-		Agent: cfg.Agent, Palette: cfg.Palette, HasKey: key != "",
+		ConfigPath: configPath, Active: cfg.Active, Projects: projects,
+		Agent: cfg.Agent, Palette: cfg.Palette, Shortcuts: resolveShortcuts(cfg), Commands: commands, HasKey: key != "",
 	}
 }
 
@@ -282,9 +287,13 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := checkShortcuts(in.Shortcuts); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	configMu.Lock()
 	defer configMu.Unlock()
-	cfg := &config.Config{Active: in.Active, Agent: in.Agent, Palette: in.Palette}
+	cfg := &config.Config{Active: in.Active, Agent: in.Agent, Palette: in.Palette, Shortcuts: shortcutOverrides(in.Shortcuts)}
 	for _, p := range in.Projects {
 		p.Name = strings.TrimSpace(p.Name)
 		if p.Name == "" {
@@ -324,10 +333,22 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The hotkey is rebound first: a binding the system refuses fails the
+	// save and leaves the old one (DESIGN.md, Settings).
+	oldHotkey, newHotkey := resolveShortcuts(current.Load())["search"], resolveShortcuts(cfg)["search"]
+	if err := rebindHotkey(oldHotkey, newHotkey); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if err := applyConfig(cfg); err != nil {
+		if again := rebindHotkey(newHotkey, oldHotkey); again != nil {
+			log.Print(again)
+		}
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Both windows reload their shortcuts.
+	app.Event.Emit("settings:saved", "")
 	writeJSON(w, currentSettings(cfg))
 }
 

@@ -23,6 +23,9 @@ type Config struct {
 	Roots   []Root  `toml:"roots,omitempty" json:"-"`
 	Agent   Agent   `toml:"agent" json:"agent"`
 	Palette Palette `toml:"palette" json:"palette"`
+	// Shortcuts are bindings that differ from the default, by command, as
+	// accelerators such as "CmdOrCtrl+Shift+Space" (DESIGN.md, Settings).
+	Shortcuts map[string]string `toml:"shortcuts,omitempty" json:"shortcuts"`
 }
 
 // DefaultProject names the project that roots from before projects move into.

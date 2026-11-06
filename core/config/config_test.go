@@ -20,7 +20,8 @@ func TestSaveLoad(t *testing.T) {
 			{Name: "Work", Roots: []Root{{Path: filepath.Join(home, "src", "app"), Include: []string{"api", "proto"}}}},
 			{Name: "Home", Roots: []Root{{Path: filepath.Join(string(filepath.Separator), "opt", "code")}}},
 		},
-		Agent: Agent{Provider: "anthropic", Model: "claude-sonnet-5-5"},
+		Agent:     Agent{Provider: "anthropic", Model: "claude-sonnet-5-5"},
+		Shortcuts: map[string]string{"search": "Alt+Space"},
 	}
 	if err := Save(path, in); err != nil {
 		t.Fatal(err)
@@ -33,7 +34,7 @@ func TestSaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Projects) != 2 || out.Active != "Home" || out.Agent != in.Agent {
+	if len(out.Projects) != 2 || out.Active != "Home" || out.Agent != in.Agent || out.Shortcuts["search"] != "Alt+Space" {
 		t.Fatalf("round trip: got %+v, want %+v", out, in)
 	}
 	work, home2 := out.Projects[0], out.Projects[1]

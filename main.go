@@ -21,9 +21,6 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// hotkey summons the palette (DESIGN.md, Summoning).
-const hotkey = "CmdOrCtrl+Shift+Space"
-
 var (
 	app           *application.App
 	palette       *application.WebviewWindow
@@ -178,6 +175,8 @@ func run() error {
 	menu.Add("Quit Docent").OnClick(func(*application.Context) { app.Quit() })
 	tray.SetMenu(menu)
 
+	// The hotkey summons the palette (DESIGN.md, Summoning).
+	hotkey := resolveShortcuts(cfg)["search"]
 	if err := app.GlobalShortcut.Register(hotkey, togglePalette); err != nil {
 		log.Printf("register hotkey %s: %v", hotkey, err)
 	}
