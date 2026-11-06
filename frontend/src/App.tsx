@@ -9,7 +9,7 @@ import { Settings } from "./Settings";
 import { Tree } from "./Tree";
 import { crumbs, Highlighted, RowView, sameHit, type Row } from "./Rows";
 import { AgentAnswer, applyEvent, followUp, newRun, stepLabel, type Run } from "./Agent";
-import { altLabel, cmd, hotkeyLabel, isMac, modLabel } from "./keys";
+import { capturing, label, matches } from "./keys";
 
 // shortcut switches to the tab when typed into an empty query.
 const tabs: { tab: Tab; label: string; icon: LucideIcon; shortcut?: string }[] = [
@@ -64,6 +64,11 @@ export function App() {
   const [codeFocus, setCodeFocus] = useState(0);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
+  // sc is the shortcut bindings (shortcuts.go); the global key handler,
+  // registered once, reads the latest through scRef.
+  const sc = status?.shortcuts ?? {};
+  const scRef = useRef(sc);
+  scRef.current = sc;
   const modeRef = useRef(mode);
   modeRef.current = mode;
   // overOverview is set while the palette is summoned over the overview
@@ -150,31 +155,28 @@ export function App() {
         setIndexVersion((v) => v + 1);
       }),
     ];
-    // Cmd+W closes the file in the viewer and hides the window elsewhere.
-    // Cmd+, opens settings. Keys are matched by physical key (e.code), so
-    // shortcuts work in any keyboard layout.
+    // Window shortcuts (keys.ts): close goes back to search from the viewer
+    // and hides the window elsewhere; the rest are the viewer's commands
+    // and settings. Settings recording a binding take every key.
     const onKey = (e: KeyboardEvent) => {
-      if (!cmd(e) || e.shiftKey) return;
-      if (e.altKey) {
-        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-          e.preventDefault();
-          stepResult.current(e.key === "ArrowDown" ? 1 : -1);
-        }
-        return;
-      }
-      if (e.key === "Enter") {
+      if (capturing.active) return;
+      const sc = scRef.current;
+      if (matches(sc.nextResult, e) || matches(sc.prevResult, e)) {
+        e.preventDefault();
+        stepResult.current(matches(sc.nextResult, e) ? 1 : -1);
+      } else if (matches(sc.overview, e)) {
         // Stop it here so the editor does not insert a line.
         if (toOverview.current()) (e.preventDefault(), e.stopPropagation());
-      } else if (e.code === "Digit1") {
+      } else if (matches(sc.tree, e)) {
         e.preventDefault();
         toggleTree.current();
-      } else if (e.code === "KeyW") {
+      } else if (matches(sc.close, e)) {
         e.preventDefault();
         closeFile.current();
-      } else if (e.code === "Comma") {
+      } else if (matches(sc.settings, e)) {
         e.preventDefault();
         if (!dirtyRef.current) setMode("settings");
-      } else if (e.code === "KeyP") {
+      } else if (matches(sc.projects, e)) {
         e.preventDefault();
         openPicker.current();
       }
@@ -308,6 +310,17 @@ export function App() {
       setTab(shortcut.tab);
       return;
     }
+    if (matches(sc.overview, e)) {
+      e.preventDefault();
+      if (currentHit) openInOverview(currentHit);
+      return;
+    }
+    if (tab === "text" && (matches(sc.regex, e) || matches(sc.matchCase, e))) {
+      e.preventDefault();
+      if (matches(sc.regex, e)) setRegex((r) => !r);
+      else setMatchCase((c) => !c);
+      return;
+    }
     switch (e.key) {
       case "Tab": {
         e.preventDefault();
@@ -330,10 +343,6 @@ export function App() {
         return;
       case "Enter":
         e.preventDefault();
-        if (cmd(e)) {
-          if (currentHit) openInOverview(currentHit);
-          return;
-        }
         // A new question starts the agent; on the same question Enter opens the selected finding.
         if (tab === "agent" && !list && run?.question !== query.trim()) ask(query);
         else activate(current);
@@ -344,20 +353,12 @@ export function App() {
         else api.hide();
         return;
     }
-    if (e.altKey && e.code === "KeyR" && tab === "text") {
-      e.preventDefault();
-      setRegex((r) => !r);
-    }
-    if (e.altKey && e.code === "KeyC" && tab === "text") {
-      e.preventDefault();
-      setMatchCase((c) => !c);
-    }
   };
 
   const backToPalette = () => {
     if (dirty && !discardArmed) {
       setDiscardArmed(true);
-      setNotice(`Unsaved changes: ${modLabel}S to save, press again to discard`);
+      setNotice(`Unsaved changes: ${label(sc.save)} to save, press again to discard`);
       return;
     }
     setDirty(false);
@@ -369,7 +370,7 @@ export function App() {
 
   // The hotkey never discards edits, unlike a second Esc.
   toSearch.current = () => {
-    if (dirty) return setNotice(`Unsaved changes: ${modLabel}S to save, Esc twice to discard`);
+    if (dirty) return setNotice(`Unsaved changes: ${label(sc.save)} to save, Esc twice to discard`);
     backToPalette();
   };
 
@@ -564,7 +565,6 @@ export function App() {
   const footer = (
     <footer className="status">
       <span>{notice || statusLine(status, progress)}</span>
-      <span>{status && hotkeyLabel(status.hotkey)}</span>
     </footer>
   );
 
@@ -607,7 +607,7 @@ export function App() {
                 </button>
                 <button className="tab" onClick={() => setMode("settings")}>
                   <SettingsIcon size={14} strokeWidth={2} />
-                  Settings {modLabel},
+                  Settings
                 </button>
                 {notice && <span className="tab-note">{notice}</span>}
               </>
@@ -623,12 +623,12 @@ export function App() {
             )}
             {tab === "text" && !list && !picker && !noRoots && (
               <>
-                <button className={regex ? "tab icon active" : "tab icon"} title={`Regex (${altLabel}R)`} onClick={() => (setRegex(!regex), focusInput())}>
+                <button className={regex ? "tab icon active" : "tab icon"} title={`Regex (${label(sc.regex)})`} onClick={() => (setRegex(!regex), focusInput())}>
                   <Regex size={14} strokeWidth={2} />
                 </button>
                 <button
                   className={matchCase ? "tab icon active" : "tab icon"}
-                  title={`Match case (${altLabel}C)`}
+                  title={`Match case (${label(sc.matchCase)})`}
                   onClick={() => (setMatchCase(!matchCase), focusInput())}
                 >
                   <CaseSensitive size={14} strokeWidth={2} />
@@ -644,7 +644,7 @@ export function App() {
             {projects.length > 1 && !picker && (
               <button
                 className={progress ? "tab project after-progress" : "tab project"}
-                title={`Switch project (${modLabel}P)`}
+                title={`Switch project (${label(sc.projects)})`}
                 onClick={() => openPicker.current()}
               >
                 <Layers size={14} strokeWidth={2} />
@@ -654,7 +654,7 @@ export function App() {
             {!noRoots && (
               <button
                 className={progress || projects.length > 1 ? "tab gear after-progress" : "tab gear"}
-                title={`Settings (${modLabel},)`}
+                title={`Settings (${label(sc.settings)})`}
                 onClick={() => setMode("settings")}
               >
                 <SettingsIcon size={14} strokeWidth={2} />
@@ -798,10 +798,10 @@ export function App() {
                 <button className="icon-button" title={sidebarOpen ? "Hide search" : "Show search"} onClick={() => setSidebarOpen(!sidebarOpen)}>
                   {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
                 </button>
-                <button className="icon-button" title={`${treeOpen ? "Hide" : "Show"} project tree (${modLabel}1)`} onClick={() => showTree(!treeOpen)}>
+                <button className="icon-button" title={`${treeOpen ? "Hide" : "Show"} project tree (${label(sc.tree)})`} onClick={() => showTree(!treeOpen)}>
                   <FolderTree size={15} />
                 </button>
-                <button className="icon-button" title={`Open in overview window (${modLabel}${isMac ? "↩" : "Enter"})`} onClick={moveToOverview}>
+                <button className="icon-button" title={`Open in overview window (${label(sc.overview)})`} onClick={moveToOverview}>
                   <AppWindow size={15} />
                 </button>
                 <span className="path">
@@ -819,14 +819,10 @@ export function App() {
                   )}
                   {dirty && <span className="dirty"> ●</span>}
                 </span>
-                <span className="hints">
-                  Esc back · {modLabel}
-                  {isMac ? "↩" : "Enter"} overview · {modLabel}1 tree · {isMac ? "⌘⌥" : "Ctrl+Alt+"}↓↑ next result · {modLabel}S save · {modLabel}B definition ·{" "}
-                  {altLabel}F7 usages · {modLabel}L line · {modLabel}F find
-                </span>
               </header>
               <main className="viewer">
                 <Code
+                  shortcuts={sc}
                   path={viewer.hit.path}
                   content={viewer.content}
                   line={viewer.hit.line}

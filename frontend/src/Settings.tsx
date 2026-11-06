@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { FolderPlus, Plus, Trash2, X } from "lucide-react";
+import { FolderPlus, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import * as api from "./api";
-import { cmd, modLabel } from "./keys";
+import { canonical, capturing, fromEvent, label, matches, type Shortcuts } from "./keys";
 
 // RootDraft keeps the include list as typed, so separators survive editing.
 type RootDraft = { path: string; include: string; exclude: string[] | null };
@@ -35,6 +35,9 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
   const [activeKey, setActiveKey] = useState(0);
   const [agent, setAgent] = useState<api.Agent>({ provider: "anthropic", model: "", baseUrl: "" });
   const [screen, setScreen] = useState<api.Palette["screen"]>("focus");
+  const [shortcuts, setShortcuts] = useState<Shortcuts>({});
+  // recording is the command whose binding the next key press sets.
+  const [recording, setRecording] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [clearKey, setClearKey] = useState(false);
   const [error, setError] = useState("");
@@ -51,11 +54,45 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
         setActiveKey(drafts[0]?.key ?? 0);
         setAgent({ ...s.agent, provider: s.agent.provider || "anthropic" });
         setScreen(s.palette?.screen || "focus");
+        setShortcuts(s.shortcuts);
       },
       (e) => setError(e.message),
     );
     container.current?.focus();
   }, []);
+
+  // While a binding is recorded, the windows' own shortcuts stay out of the way.
+  useEffect(() => {
+    capturing.active = recording !== null;
+    return () => {
+      capturing.active = false;
+    };
+  }, [recording]);
+
+  const commands = loaded?.commands ?? [];
+  // conflicts are the commands sharing a binding with another, by id.
+  const conflicts = new Map<string, string>();
+  for (const a of commands) {
+    for (const b of commands) {
+      if (a.id < b.id && canonical(shortcuts[a.id]) === canonical(shortcuts[b.id])) {
+        conflicts.set(a.id, b.label);
+        conflicts.set(b.id, a.label);
+      }
+    }
+  }
+  const changed = commands.filter((c) => canonical(shortcuts[c.id]) !== canonical(c.default));
+
+  // onRecord sets the recorded command's binding from the keys pressed;
+  // Esc keeps the old one, a modifier alone keeps recording.
+  const onRecord = (id: string) => (e: React.KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") return setRecording(null);
+    const binding = fromEvent(e);
+    if (!binding) return;
+    setShortcuts({ ...shortcuts, [id]: binding });
+    setRecording(null);
+  };
 
   const provider = providers.find((p) => p.id === agent.provider) ?? providers[0];
   const keyStored = !!loaded?.hasKey && loaded.agent.provider === agent.provider;
@@ -97,7 +134,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
   };
 
   const save = async () => {
-    if (!loaded || saving) return;
+    if (!loaded || saving || conflicts.size > 0) return;
     setSaving(true);
     setError("");
     try {
@@ -114,6 +151,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
         })),
         agent,
         palette: { screen },
+        shortcuts,
         apiKey,
         clearKey: clearKey && !apiKey,
       });
@@ -129,7 +167,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
     if (e.key === "Escape") {
       e.preventDefault();
       props.onClose();
-    } else if (cmd(e) && e.code === "KeyS") {
+    } else if (matches(shortcuts.save, e)) {
       e.preventDefault();
       save();
     }
@@ -147,7 +185,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
         <section>
           <h3>Projects</h3>
           <p className="hint">
-            Folders Docent indexes, grouped into projects. Search, the agent and the overview window see the active project; {modLabel}P switches.
+            Folders Docent indexes, grouped into projects. Search, the agent and the overview window see the active project; {label(shortcuts.projects)} switches.
             Limit large repositories to the subdirectories you need.
           </p>
           {projects.map((p) => (
@@ -210,6 +248,47 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
         </section>
 
         <section>
+          <h3>Shortcuts</h3>
+          <p className="hint">Click a shortcut and press the keys; Esc keeps it. A shortcut needs Cmd, Ctrl or Alt, unless it is a function key.</p>
+          <table className="shortcuts">
+            <tbody>
+              {commands.map((c) => (
+                <tr key={c.id} className={conflicts.has(c.id) ? "conflict" : undefined}>
+                  <td>{c.label}</td>
+                  <td>
+                    <button
+                      className={recording === c.id ? "key recording" : "key"}
+                      title="Click, then press the keys"
+                      onClick={() => setRecording(c.id)}
+                      onKeyDown={recording === c.id ? onRecord(c.id) : undefined}
+                      onBlur={() => setRecording((r) => (r === c.id ? null : r))}
+                    >
+                      <kbd>{recording === c.id ? "Press keys…" : label(shortcuts[c.id])}</kbd>
+                    </button>
+                  </td>
+                  <td>
+                    {conflicts.has(c.id) ? (
+                      <span className="error">also {conflicts.get(c.id)}</span>
+                    ) : (
+                      canonical(shortcuts[c.id]) !== canonical(c.default) && (
+                        <button className="icon-button" title={`Reset to ${label(c.default)}`} onClick={() => setShortcuts({ ...shortcuts, [c.id]: c.default })}>
+                          <RotateCcw size={13} />
+                        </button>
+                      )
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {changed.length > 0 && (
+            <button className="link" onClick={() => setShortcuts(Object.fromEntries(commands.map((c) => [c.id, c.default])))}>
+              Reset all to defaults
+            </button>
+          )}
+        </section>
+
+        <section>
           <h3>Agent</h3>
           <div className="pills">
             {providers.map((p) => (
@@ -251,8 +330,8 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
           <button className="pill" onClick={props.onClose}>
             Cancel
           </button>
-          <button className="pill active" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : `Save ${modLabel}S`}
+          <button className="pill active" onClick={save} disabled={saving || conflicts.size > 0}>
+            {saving ? "Saving…" : `Save ${label(shortcuts.save)}`}
           </button>
         </div>
       </footer>

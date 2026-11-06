@@ -8,7 +8,7 @@ import { Tree } from "./Tree";
 import { crumbs, RowView, sameHit } from "./Rows";
 import { definitionOrUsages, usages, type Where } from "./navigate";
 import { statusLine } from "./App";
-import { altLabel, cmd, hotkeyLabel, isMac, modLabel } from "./keys";
+import { isMac, label, matches } from "./keys";
 
 // FileTab is a file open in a tab. content is the file as read from disk;
 // draft is unsaved text the tab was opened with. rev remounts the editor
@@ -73,6 +73,8 @@ export function Overview() {
   const { maximised, fullscreen } = useWindowState();
 
   const tab = tabs.find((t) => t.id === active) ?? null;
+  // sc is the shortcut bindings (shortcuts.go).
+  const sc = status?.shortcuts ?? {};
   const dirtyTabs = tabs.filter((t) => t.dirty);
   const anyDirty = dirtyTabs.length > 0;
 
@@ -219,6 +221,8 @@ export function Overview() {
         api.getStatus().then(setStatus);
         setVersion((v) => v + 1);
       }),
+      // Shortcuts may have changed.
+      Events.On("settings:saved", () => api.getStatus().then(setStatus)),
     ];
     return () => offs.forEach((off) => off());
   }, []);
@@ -229,7 +233,7 @@ export function Overview() {
     if (t.dirty && discardArmed !== id) {
       setActive(id);
       setDiscardArmed(id);
-      setNotice(`Unsaved changes in ${fileName(t.hit.path)}: ${modLabel}S to save, close again to discard`);
+      setNotice(`Unsaved changes in ${fileName(t.hit.path)}: ${label(sc.save)} to save, close again to discard`);
       return;
     }
     setDiscardArmed(0);
@@ -395,30 +399,29 @@ export function Overview() {
   // latest version.
   const onKey = useRef<(e: KeyboardEvent) => boolean>(() => false);
   onKey.current = (e) => {
-    if (e.ctrlKey && e.key === "Tab") {
-      switchTab(e.shiftKey ? -1 : 1);
+    if (matches(sc.nextTab, e) || matches(sc.prevTab, e)) {
+      switchTab(matches(sc.nextTab, e) ? 1 : -1);
       return true;
     }
-    if (!cmd(e) || e.shiftKey) return false;
-    if (e.altKey) {
-      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return false;
-      stepResult(e.key === "ArrowDown" ? 1 : -1);
+    if (matches(sc.nextResult, e) || matches(sc.prevResult, e)) {
+      stepResult(matches(sc.nextResult, e) ? 1 : -1);
       return true;
     }
-    // Physical keys, so shortcuts work in any keyboard layout.
-    switch (e.code) {
-      case "Digit1":
-        toggleTree();
-        return true;
-      case "KeyW":
-        if (tab) closeTab(tab.id);
-        return true;
-      case "Comma":
-        api.openSettings();
-        return true;
-      case "KeyP":
-        api.showProjects();
-        return true;
+    if (matches(sc.tree, e)) {
+      toggleTree();
+      return true;
+    }
+    if (matches(sc.close, e)) {
+      if (tab) closeTab(tab.id);
+      return true;
+    }
+    if (matches(sc.settings, e)) {
+      api.openSettings();
+      return true;
+    }
+    if (matches(sc.projects, e)) {
+      api.showProjects();
+      return true;
     }
     return false;
   };
@@ -438,8 +441,7 @@ export function Overview() {
     return ref;
   };
 
-  const keys = (k: string) => <kbd>{k}</kbd>;
-  const hotkey = status ? hotkeyLabel(status.hotkey) : "";
+  const keys = (k: string | undefined) => <kbd>{label(k)}</kbd>;
 
   return (
     <div className={isMac ? "overview" : maximised ? "overview frameless maximised" : "overview frameless"}>
@@ -447,7 +449,7 @@ export function Overview() {
         {!noRoots && (
           <button
             className={treeOpen ? "tab icon active" : "tab icon"}
-            title={`${treeOpen ? "Hide" : "Show"} project tree (${modLabel}1)`}
+            title={`${treeOpen ? "Hide" : "Show"} project tree (${label(sc.tree)})`}
             onClick={() => (treeOpen ? toggleTree() : setTreeOpen(true))}
           >
             <FolderTree size={14} strokeWidth={2} />
@@ -464,19 +466,19 @@ export function Overview() {
             >
               <span>{fileName(t.hit.path)}</span>
               {t.dirty && <span className="dirty">●</span>}
-              <button className="ov-tab-close" title={`Close (${modLabel}W)`} onClick={(e) => (e.stopPropagation(), closeTab(t.id))}>
+              <button className="ov-tab-close" title={`Close (${label(sc.close)})`} onClick={(e) => (e.stopPropagation(), closeTab(t.id))}>
                 <X size={12} />
               </button>
             </div>
           ))}
         </div>
         {status && status.projects.length > 1 && (
-          <button className="tab project" title={`Switch project (${modLabel}P)`} onClick={() => api.showProjects()}>
+          <button className="tab project" title={`Switch project (${label(sc.projects)})`} onClick={() => api.showProjects()}>
             <Layers size={14} strokeWidth={2} />
             {status.project}
           </button>
         )}
-        <button className="tab icon" title={`Settings (${modLabel},)`} onClick={() => api.openSettings()}>
+        <button className="tab icon" title={`Settings (${label(sc.settings)})`} onClick={() => api.openSettings()}>
           <SettingsIcon size={14} strokeWidth={2} />
         </button>
         {!isMac && <WindowButtons maximised={maximised} />}
@@ -514,15 +516,13 @@ export function Overview() {
                     ),
                   )}
                 </span>
-                <span className="hints">
-                  {modLabel}B definition · {altLabel}F7 usages · {modLabel}L line · {modLabel}F find
-                </span>
               </header>
             )}
             <main className="ov-code">
               {tabs.map((t) => (
                 <div key={`${t.id}:${t.rev}`} className="ov-file" hidden={t.id !== active}>
                   <Code
+                    shortcuts={sc}
                     path={t.hit.path}
                     content={t.draft ?? t.content}
                     original={t.content}
@@ -557,19 +557,19 @@ export function Overview() {
                   ) : (
                     <dl className="ov-welcome-keys">
                       <dt>Search everywhere</dt>
-                      <dd>{keys(hotkey)}</dd>
+                      <dd>{keys(sc.search)}</dd>
                       <dt>Project tree</dt>
-                      <dd>{keys(`${modLabel}1`)}</dd>
+                      <dd>{keys(sc.tree)}</dd>
                       <dt>Go to definition</dt>
                       <dd>
-                        {keys(`${modLabel}B`)} or {keys(`${modLabel}click`)}
+                        {keys(sc.definition)} or <kbd>{isMac ? "⌘click" : "Ctrl+click"}</kbd>
                       </dd>
                       <dt>Find usages</dt>
-                      <dd>{keys(`${altLabel}F7`)}</dd>
+                      <dd>{keys(sc.usages)}</dd>
                       <dt>Switch project</dt>
-                      <dd>{keys(`${modLabel}P`)}</dd>
+                      <dd>{keys(sc.projects)}</dd>
                       <dt>Settings</dt>
-                      <dd>{keys(`${modLabel},`)}</dd>
+                      <dd>{keys(sc.settings)}</dd>
                     </dl>
                   )}
                 </div>
@@ -596,7 +596,6 @@ export function Overview() {
               <span>
                 {progress && <LoaderCircle size={11} className="spin" />} {notice || statusLine(status, progress)}
               </span>
-              <span>{hotkey && `${hotkey} search`}</span>
             </footer>
           </section>
           {results && (

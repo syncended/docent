@@ -42,9 +42,19 @@ export interface RootInfo {
   indexedAt: string;
 }
 
+// Shortcuts maps command ids to bindings (shortcuts.go; keys.ts).
+export type Shortcuts = Record<string, string>;
+
+// Command is a keyboard command with its default binding.
+export interface Command {
+  id: string;
+  label: string;
+  default: string;
+}
+
 export interface Status {
   configPath: string;
-  hotkey: string;
+  shortcuts: Shortcuts;
   indexing: boolean;
   // project is the active project; projects lists them all.
   project: string;
@@ -126,11 +136,12 @@ export interface Palette {
 
 export interface Settings {
   configPath: string;
-  hotkey: string;
   active: string;
   projects: Project[];
   agent: Agent;
   palette: Palette;
+  shortcuts: Shortcuts;
+  commands: Command[];
   hasKey: boolean;
   apiKey?: string;
   clearKey?: boolean;
