@@ -77,6 +77,9 @@ Shortcuts are written with `Cmd` as on macOS; on Linux and Windows `Cmd` is `Ctr
 Shortcuts are bound to physical keys, so they work in any keyboard layout
 (`Cmd+W` is the same key with a Russian layout on). Characters typed into the
 search bar, such as the tab shortcuts `#` and `@`, are taken as typed.
+The shortcuts below are defaults: each can be changed in Settings (see
+[Settings](#settings)). The windows show no shortcut hints beyond tooltips and
+the overview window's empty state; Settings is the reference.
 
 ### Code sources
 
@@ -218,6 +221,16 @@ Opened with `Cmd+,` from the palette or the overview window, from the menu bar
   again; it can be replaced or removed.
 - **Palette:** which screen it opens on: the one with the focused window
   (default), the one with the pointer, or the primary screen.
+- **Shortcuts:** every command with its binding: search everywhere (the
+  hotkey), open in the overview window, project tree, close, settings, switch
+  project, next and previous result, next and previous tab, save, go to
+  definition, find usages, go to line, find in file, regex and match case.
+  Clicking a binding and pressing keys changes it; `Esc` keeps the old one.
+  A binding needs a modifier other than `Shift`, unless it is a function key,
+  and two commands cannot share one. A binding resets to its default, or all
+  of them at once. Changes apply on save, without a restart; a hotkey the
+  system refuses (taken by another application) fails the save with the
+  reason, and the old one stays.
 - Shows where the config file lives, for those who prefer editing it by hand.
 - First run: with no roots, the palette stays a compact bar and offers
   "Add folder…" (system folder picker, then indexing starts) and Settings.
@@ -364,7 +377,7 @@ In scope:
   definitions and usages in its results panel, palette results opening in it.
 - Built-in agent: Anthropic and OpenAI-compatible providers, one configured
   agent, API key in the OS credential store.
-- Settings screen for projects, code roots and the agent.
+- Settings screen for projects, code roots, the agent and shortcuts.
 
 Out of scope (after MVP):
 
@@ -377,7 +390,6 @@ Out of scope (after MVP):
   roots (dependencies, the standard library).
 - Double `Shift` hotkey.
 - Linux build (code stays cross-platform; platform-specific parts are isolated).
-- Changing the hotkey from the UI.
 - Look and feel beyond a clean default.
 
 ## Non-goals
@@ -421,6 +433,9 @@ Only what is critical to the product.
   still works.
 - **Single instance.** A second launch does not start another Docent; it
   brings the running one's overview window forward.
+- **Shortcuts in the config file** are accelerators in Wails syntax
+  (`CmdOrCtrl+Shift+Space`), one per command; only bindings that differ from
+  the default are written, so defaults can change with releases.
 - **macOS activation policy follows the overview window.** Docent runs as an
   accessory app (no Dock icon) so the palette never activates it; while the
   overview window is open it switches to a regular app, so the window gets a
