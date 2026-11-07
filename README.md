@@ -39,6 +39,15 @@ Opening a result shows the file next to the search and the project tree:
 
 ![Viewer with search results and project tree](docs/screenshots/viewer.png)
 
+The overview window keeps files in tabs, with definitions and usages in a
+panel below the code:
+
+![Overview window with a file open and its usages](docs/screenshots/overview.png)
+
+Every shortcut can be changed in settings:
+
+![Settings, the Shortcuts tab](docs/screenshots/settings.png)
+
 The specification is [`DESIGN.md`](DESIGN.md).
 
 ## Installing
