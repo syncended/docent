@@ -369,11 +369,17 @@ export function Overview() {
     e.preventDefault();
   };
 
+  const hideTree = () => {
+    setTreeOpen(false);
+    setTreeReveal(null);
+    setCodeFocus((n) => n + 1);
+  };
+
+  // toggleTree is the shortcut: it shows and focuses the tree, or hides it
+  // when it has focus (DESIGN.md, Overview window).
   const toggleTree = () => {
     if (treeOpen && document.activeElement?.closest(".tree")) {
-      setTreeOpen(false);
-      setTreeReveal(null);
-      setCodeFocus((n) => n + 1);
+      hideTree();
     } else {
       setTreeOpen(true);
       setTreeFocus((n) => n + 1);
@@ -450,7 +456,7 @@ export function Overview() {
           <button
             className={treeOpen ? "tab icon active" : "tab icon"}
             title={`${treeOpen ? "Hide" : "Show"} project tree (${label(sc.tree)})`}
-            onClick={() => (treeOpen ? toggleTree() : setTreeOpen(true))}
+            onClick={() => (treeOpen ? hideTree() : setTreeOpen(true))}
           >
             <FolderTree size={14} strokeWidth={2} />
           </button>
