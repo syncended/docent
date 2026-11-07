@@ -163,3 +163,7 @@ git push origin v0.1.0
 ```
 
 `build/set-version.sh` writes the tag's version into the build assets.
+
+## License
+
+[MIT](LICENSE).
