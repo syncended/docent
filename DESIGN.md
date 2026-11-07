@@ -456,6 +456,10 @@ Only what is critical to the product.
   still works.
 - **Single instance.** A second launch does not start another Docent; it
   brings the running one's overview window forward.
+- **Log file.** Docent logs to `docent.log` in its cache directory (next to
+  the index) as well as to stderr: launched from the desktop, a background
+  app has no console, so a startup failure would otherwise leave no trace.
+  The shell's fatal errors, which end the process, are logged there too.
 - **Shortcuts in the config file** are accelerators in Wails syntax
   (`CmdOrCtrl+Shift+Space`), one per command; only bindings that differ from
   the default are written, so defaults can change with releases.

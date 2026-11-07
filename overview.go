@@ -2,6 +2,7 @@ package main
 
 import (
 	"runtime"
+	"sync"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -20,6 +21,8 @@ var (
 	// window: results then open as tabs there, and hiding the palette
 	// returns focus to it.
 	overPalette atomic.Bool
+	// openedAtLaunch opens the overview window once, at launch (see newOverview).
+	openedAtLaunch sync.Once
 )
 
 // overviewFile is a file to open as a tab in the overview window. Content,
@@ -72,6 +75,13 @@ func newOverview() {
 	overview.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
 		app.Event.Emit("overview:close", "")
+	})
+	// Launching Docent opens the overview window (DESIGN.md, Overview window)
+	// once its frontend has loaded. Opening it from ApplicationStarted raced
+	// the window's creation: on Windows, focusing the window before its
+	// webview existed panicked inside Wails, which then exits the process.
+	overview.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		openedAtLaunch.Do(showOverview)
 	})
 }
 

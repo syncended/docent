@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"log"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -76,6 +77,10 @@ func main() {
 }
 
 func run() error {
+	if err := openLog(); err != nil {
+		return err
+	}
+	log.Print("starting")
 	var err error
 	if configPath, err = config.DefaultPath(); err != nil {
 		return err
@@ -100,7 +105,12 @@ func run() error {
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
 			Middleware: apiMiddleware,
+			// Every request would otherwise go to the log.
+			DisableLogging: true,
 		},
+		// Wails's production logger discards everything, including the
+		// fatal errors it exits on; send them to Docent's log (logfile.go).
+		Logger: slog.New(slog.NewTextHandler(log.Writer(), nil)),
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyAccessory,
 		},
@@ -158,9 +168,7 @@ func run() error {
 	})
 
 	newOverview()
-	// Launching Docent opens the overview window; clicking its Dock icon
-	// brings it back.
-	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) { showOverview() })
+	// Clicking the Dock icon brings the overview window back.
 	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) { showOverview() })
 
 	tray := app.SystemTray.New()
