@@ -662,8 +662,8 @@ export function Overview() {
           {results && (
             <div className="card ov-results" ref={panel} tabIndex={0} onKeyDown={onPanelKey}>
               <div className="ov-results-title">
-                <span>
-                  {results.title} · {results.hits.length} · {isMac ? "⌘⌥" : "Ctrl+Alt+"}↓↑
+                <span title={`Next ${label(sc.nextResult)}, previous ${label(sc.prevResult)}`}>
+                  {results.title} · {results.hits.length}
                 </span>
                 <button className="icon-button" title="Close (Esc)" onClick={hideResults}>
                   <X size={13} />
