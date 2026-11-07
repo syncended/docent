@@ -18,32 +18,34 @@ import (
 	"github.com/syncended/docent/core/config"
 )
 
-// command is a keyboard command; ID keys it in the config and the frontend.
+// command is a keyboard command; ID keys it in the config and the frontend,
+// Group is the heading the settings screen lists it under.
 type command struct {
 	ID      string `json:"id"`
+	Group   string `json:"group"`
 	Label   string `json:"label"`
 	Default string `json:"default"`
 }
 
 // commands lists the commands in the order the settings screen shows them.
 var commands = []command{
-	{"search", "Search everywhere", "CmdOrCtrl+Shift+Space"},
-	{"overview", "Open in overview window", "CmdOrCtrl+Enter"},
-	{"tree", "Project tree", "CmdOrCtrl+1"},
-	{"close", "Close file or tab", "CmdOrCtrl+W"},
-	{"settings", "Settings", "CmdOrCtrl+,"},
-	{"projects", "Switch project", "CmdOrCtrl+P"},
-	{"nextResult", "Next result", "CmdOrCtrl+Alt+Down"},
-	{"prevResult", "Previous result", "CmdOrCtrl+Alt+Up"},
-	{"nextTab", "Next tab", "Ctrl+Tab"},
-	{"prevTab", "Previous tab", "Ctrl+Shift+Tab"},
-	{"save", "Save", "CmdOrCtrl+S"},
-	{"definition", "Go to definition", "CmdOrCtrl+B"},
-	{"usages", "Find usages", "Alt+F7"},
-	{"line", "Go to line", "CmdOrCtrl+L"},
-	{"find", "Find in file", "CmdOrCtrl+F"},
-	{"regex", "Regular expression (Text tab)", "Alt+R"},
-	{"matchCase", "Match case (Text tab)", "Alt+C"},
+	{"search", "Windows", "Search everywhere", "CmdOrCtrl+Shift+Space"},
+	{"overview", "Windows", "Open in overview window", "CmdOrCtrl+Enter"},
+	{"tree", "Windows", "Project tree", "CmdOrCtrl+1"},
+	{"close", "Windows", "Close file or tab", "CmdOrCtrl+W"},
+	{"settings", "Windows", "Settings", "CmdOrCtrl+,"},
+	{"projects", "Windows", "Switch project", "CmdOrCtrl+P"},
+	{"nextResult", "Results and tabs", "Next result", "CmdOrCtrl+Alt+Down"},
+	{"prevResult", "Results and tabs", "Previous result", "CmdOrCtrl+Alt+Up"},
+	{"nextTab", "Results and tabs", "Next tab", "Ctrl+Tab"},
+	{"prevTab", "Results and tabs", "Previous tab", "Ctrl+Shift+Tab"},
+	{"save", "Editor", "Save", "CmdOrCtrl+S"},
+	{"definition", "Editor", "Go to definition", "CmdOrCtrl+B"},
+	{"usages", "Editor", "Find usages", "Alt+F7"},
+	{"line", "Editor", "Go to line", "CmdOrCtrl+L"},
+	{"find", "Editor", "Find in file", "CmdOrCtrl+F"},
+	{"regex", "Text search", "Regular expression", "Alt+R"},
+	{"matchCase", "Text search", "Match case", "Alt+C"},
 }
 
 // resolveShortcuts returns every command's binding: the config's where it

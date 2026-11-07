@@ -48,6 +48,7 @@ export type Shortcuts = Record<string, string>;
 // Command is a keyboard command with its default binding.
 export interface Command {
   id: string;
+  group: string;
   label: string;
   default: string;
 }
