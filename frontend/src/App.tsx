@@ -5,7 +5,7 @@ import * as api from "./api";
 import type { Hit, Progress, Status, Tab } from "./api";
 import { Code, type At } from "./Code";
 import { definitionOrUsages, usages, type Where } from "./navigate";
-import { Settings } from "./Settings";
+import { Settings, type Section } from "./Settings";
 import { Tree } from "./Tree";
 import { crumbs, Highlighted, RowView, sameHit, type Row } from "./Rows";
 import { AgentAnswer, applyEvent, followUp, newRun, stepLabel, type Run } from "./Agent";
@@ -34,6 +34,9 @@ type PickerRow = { kind: "project"; name: string; matches: number[] } | { kind: 
 
 export function App() {
   const [mode, setMode] = useState<"palette" | "viewer" | "settings">("palette");
+  // settingsSection is the tab settings open at when set, e.g. Projects
+  // from "Manage projects…"; otherwise the one last used.
+  const [settingsSection, setSettingsSection] = useState<Section | undefined>();
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [regex, setRegex] = useState(false);
@@ -408,6 +411,7 @@ export function App() {
 
   // closeSettings returns to where settings were opened from.
   const closeSettings = () => {
+    setSettingsSection(undefined);
     const back = settingsReturn.current;
     settingsReturn.current = null;
     if (back) {
@@ -457,6 +461,7 @@ export function App() {
     try {
       if (row.kind === "manage") {
         setPicker(null);
+        setSettingsSection("Projects");
         setMode("settings");
       } else if (row.kind === "new") {
         // The switch itself closes the list (project:switched).
@@ -740,6 +745,7 @@ export function App() {
       ) : mode === "settings" ? (
         <div className="card">
           <Settings
+            section={settingsSection}
             onClose={closeSettings}
             onSaved={(message) => {
               setNotice(message);

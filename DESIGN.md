@@ -210,6 +210,10 @@ For both kinds:
 
 Opened with `Cmd+,` from the palette or the overview window, from the menu bar
 (tray) icon or the gear next to the palette tabs; shown in the palette window.
+Settings are tabs: Projects, Agent, Palette and Shortcuts. They open at
+Projects the first time and at the tab last used afterwards, until Docent
+restarts; "Manage projects…" opens at Projects. Saving and `Esc` apply to
+every tab, so a change on one tab is not lost by looking at another.
 
 - **Projects:** add, rename and remove projects; the active one is shown
   first. Removing the active project switches to another one.

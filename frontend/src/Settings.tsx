@@ -11,6 +11,14 @@ type ProjectDraft = { key: number; name: string; roots: RootDraft[]; newPath: st
 
 let nextKey = 1;
 
+// Section is a settings tab (DESIGN.md, Settings).
+export type Section = "Projects" | "Agent" | "Palette" | "Shortcuts";
+
+const sections: Section[] = ["Projects", "Agent", "Palette", "Shortcuts"];
+
+// lastSection is the tab settings open at, until Docent restarts.
+let lastSection: Section = "Projects";
+
 const draft = (p: api.Project): ProjectDraft => ({
   key: nextKey++,
   name: p.name,
@@ -29,8 +37,11 @@ const providers: { id: api.Agent["provider"]; label: string; model: string; base
   { id: "openai", label: "OpenAI-compatible", model: "model name", baseUrl: "https://api.openai.com/v1" },
 ];
 
-export function Settings(props: { onClose: () => void; onSaved: (message: string) => void }) {
+// section, if given, is the tab to open at; otherwise the last one used.
+export function Settings(props: { section?: Section; onClose: () => void; onSaved: (message: string) => void }) {
   const [loaded, setLoaded] = useState<api.Settings | null>(null);
+  const [section, setSection] = useState<Section>(props.section ?? lastSection);
+  lastSection = section;
   const [projects, setProjects] = useState<ProjectDraft[]>([]);
   const [activeKey, setActiveKey] = useState(0);
   const [agent, setAgent] = useState<api.Agent>({ provider: "anthropic", model: "", baseUrl: "" });
@@ -81,6 +92,8 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
     }
   }
   const changed = commands.filter((c) => canonical(shortcuts[c.id]) !== canonical(c.default));
+  // groups are the headings of the shortcuts tab, in the order of commands.
+  const groups = [...new Set(commands.map((c) => c.group))];
 
   // onRecord sets the recorded command's binding from the keys pressed;
   // Esc keeps the old one, a modifier alone keeps recording.
@@ -177,13 +190,19 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
     <div className="settings" ref={container} tabIndex={-1} onKeyDown={onKeyDown}>
       <header className="drag settings-header">
         <span>Settings</span>
+        <nav className="settings-tabs">
+          {sections.map((s) => (
+            <button key={s} className={s === section ? "tab active" : "tab"} onClick={() => setSection(s)}>
+              {s}
+            </button>
+          ))}
+        </nav>
         <button className="icon-button" onClick={props.onClose} title="Close">
           <X size={16} />
         </button>
       </header>
       <div className="settings-body">
-        <section>
-          <h3>Projects</h3>
+        <section hidden={section !== "Projects"}>
           <p className="hint">
             Folders Docent indexes, grouped into projects. Search, the agent and the overview window see the active project; {label(shortcuts.projects)} switches.
             Limit large repositories to the subdirectories you need.
@@ -235,8 +254,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
           </button>
         </section>
 
-        <section>
-          <h3>Palette</h3>
+        <section hidden={section !== "Palette"}>
           <p className="hint">Where the palette opens.</p>
           <div className="pills">
             {screens.map((s) => (
@@ -247,40 +265,39 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
           </div>
         </section>
 
-        <section>
-          <h3>Shortcuts</h3>
+        <section hidden={section !== "Shortcuts"}>
           <p className="hint">Click a shortcut and press the keys; Esc keeps it. A shortcut needs Cmd, Ctrl or Alt, unless it is a function key.</p>
-          <table className="shortcuts">
-            <tbody>
-              {commands.map((c) => (
-                <tr key={c.id} className={conflicts.has(c.id) ? "conflict" : undefined}>
-                  <td>{c.label}</td>
-                  <td>
-                    <button
-                      className={recording === c.id ? "key recording" : "key"}
-                      title="Click, then press the keys"
-                      onClick={() => setRecording(c.id)}
-                      onKeyDown={recording === c.id ? onRecord(c.id) : undefined}
-                      onBlur={() => setRecording((r) => (r === c.id ? null : r))}
-                    >
-                      <kbd>{recording === c.id ? "Press keys…" : label(shortcuts[c.id])}</kbd>
-                    </button>
-                  </td>
-                  <td>
-                    {conflicts.has(c.id) ? (
-                      <span className="error">also {conflicts.get(c.id)}</span>
-                    ) : (
-                      canonical(shortcuts[c.id]) !== canonical(c.default) && (
+          {groups.map((g) => (
+            <div className="shortcut-group" key={g}>
+              <h4>{g}</h4>
+              <div className="shortcut-grid">
+                {commands
+                  .filter((c) => c.group === g)
+                  .map((c) => (
+                    <div key={c.id} className={conflicts.has(c.id) ? "shortcut conflict" : "shortcut"}>
+                      <span className="shortcut-label">
+                        {c.label}
+                        {conflicts.has(c.id) && <span className="error">also {conflicts.get(c.id)}</span>}
+                      </span>
+                      {canonical(shortcuts[c.id]) !== canonical(c.default) && (
                         <button className="icon-button" title={`Reset to ${label(c.default)}`} onClick={() => setShortcuts({ ...shortcuts, [c.id]: c.default })}>
                           <RotateCcw size={13} />
                         </button>
-                      )
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      )}
+                      <button
+                        className={recording === c.id ? "key recording" : "key"}
+                        title="Click, then press the keys"
+                        onClick={() => setRecording(c.id)}
+                        onKeyDown={recording === c.id ? onRecord(c.id) : undefined}
+                        onBlur={() => setRecording((r) => (r === c.id ? null : r))}
+                      >
+                        <kbd>{recording === c.id ? "Press keys…" : label(shortcuts[c.id])}</kbd>
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ))}
           {changed.length > 0 && (
             <button className="link" onClick={() => setShortcuts(Object.fromEntries(commands.map((c) => [c.id, c.default])))}>
               Reset all to defaults
@@ -288,8 +305,7 @@ export function Settings(props: { onClose: () => void; onSaved: (message: string
           )}
         </section>
 
-        <section>
-          <h3>Agent</h3>
+        <section hidden={section !== "Agent"}>
           <div className="pills">
             {providers.map((p) => (
               <button key={p.id} className={p.id === agent.provider ? "pill active" : "pill"} onClick={() => setAgent({ ...agent, provider: p.id })}>

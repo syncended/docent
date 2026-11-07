@@ -441,6 +441,11 @@ mark {
   user-select: text;
 }
 
+.settings button,
+.settings kbd {
+  user-select: none;
+}
+
 .settings-header {
   display: flex;
   justify-content: space-between;
@@ -448,6 +453,14 @@ mark {
   padding: 10px 12px 10px 16px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
+}
+
+.settings-tabs {
+  --wails-draggable: no-drag;
+  display: flex;
+  gap: 4px;
+  margin: 0 auto;
+  font-weight: 400;
 }
 
 .settings-body {
@@ -601,22 +614,51 @@ mark {
   white-space: nowrap;
 }
 
-.shortcuts {
-  border-collapse: collapse;
-  margin: 4px 0 8px;
-}
-
-.shortcuts td {
-  padding: 3px 12px 3px 0;
-  vertical-align: middle;
-}
-
-.shortcuts td:first-child {
+.shortcut-group h4 {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-dim);
-  padding-right: 20px;
 }
 
-.shortcuts .key {
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.shortcut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 3px 6px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.shortcut-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.shortcut-label .error {
+  font-size: 11px;
+}
+
+.shortcut .icon-button {
+  opacity: 0;
+}
+
+.shortcut:hover .icon-button,
+.shortcut .icon-button:focus-visible {
+  opacity: 1;
+}
+
+.shortcut .key {
   font: inherit;
   padding: 0;
   border: none;
@@ -625,27 +667,24 @@ mark {
   cursor: pointer;
 }
 
-.shortcuts .key kbd {
-  min-width: 56px;
+.shortcut .key kbd {
+  display: inline-block;
+  min-width: 48px;
   text-align: center;
 }
 
-.shortcuts .key:hover kbd,
-.shortcuts .key:focus-visible kbd {
+.shortcut .key:hover kbd,
+.shortcut .key:focus-visible kbd {
   border-color: rgba(110, 168, 254, 0.6);
 }
 
-.shortcuts .recording kbd {
+.shortcut .recording kbd {
   color: var(--accent);
   border-color: var(--accent);
 }
 
-.shortcuts .conflict kbd {
-  border-color: #f38b8b;
-}
-
-.shortcuts .error {
-  font-size: 12px;
+.shortcut.conflict {
+  border-color: rgba(243, 139, 139, 0.6);
 }
 
 .settings-footer {
