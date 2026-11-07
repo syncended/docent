@@ -101,8 +101,16 @@ the overview window's empty state; Settings is the reference.
   project the palette shows no project name, and the first folder added goes
   into a project created for it. `Cmd+P` still lists projects (see
   [Switching projects](#switching-projects)).
-- The index is updated in the background as files change; search remains
-  available while indexing is in progress.
+- **The index follows the files.** Docent watches the roots of the active
+  project: a file saved, created, deleted or renamed — by an agent, an
+  editor or a `git checkout` — is in the index a few seconds after the
+  changes stop. Search keeps working on the previous index meanwhile and
+  the status bar shows the indexing. Untracked files count; files ignored
+  by git do not, as at startup. Changes made while Docent was not running
+  are picked up at startup, as before.
+- A result found before a change may point at a line that has since moved;
+  opening it shows the file as it is now. Results are not re-searched on
+  their own.
 
 ### Languages
 
@@ -357,10 +365,10 @@ screen.
   and results chosen there open as tabs in the window (agent answers'
   links included). `Esc` returns to the window.
 - **Status bar** under the code, in the viewer as well. On the left, what
-  is going on: indexing progress, a notice such as unsaved edits or nothing
-  found. On the right, with a file open, the cursor's line and column and
-  the file's language. With nothing to show the bar is not there at all.
-  Index sizes are not shown here:
+  is going on: indexing progress, a notice such as unsaved edits, a file
+  changed or deleted on disk, or nothing found. On the right, with a file
+  open, the cursor's line and column and the file's language. With nothing
+  to show the bar is not there at all. Index sizes are not shown here:
   Settings lists them per root (see [Settings](#settings)).
 - `Cmd+,` or the gear in the tab bar opens settings in the palette.
 - `Cmd+P` opens the project list in the palette. With two or more projects
@@ -374,6 +382,15 @@ screen.
 
 - A file open in the viewer or the overview window can be edited and saved.
 - Basic text editing only: no autocompletion, refactoring or diagnostics.
+- **Changes on disk**, as when an agent writes to the open file:
+  - Without unsaved edits the file is reloaded in place, keeping the cursor
+    and the scroll position as far as the new content allows.
+  - With unsaved edits the file is left as it is and the status bar says
+    the file has changed on disk. `Cmd+S` then asks to overwrite the file
+    or reload it, discarding the edits; closing the tab offers the same.
+  - A deleted file stays open with the status bar saying it is gone;
+    `Cmd+S` creates it again. The project tree drops it and picks up new
+    files as the index does.
 
 ## Milestones
 
@@ -456,6 +473,17 @@ Only what is critical to the product.
   still works.
 - **Single instance.** A second launch does not start another Docent; it
   brings the running one's overview window forward.
+- **File watching.** The directories of the indexed files are watched with
+  the platform's file system notifications (fsnotify); directories git
+  ignores are not watched, so `node_modules` and build output cost nothing.
+  Events are coalesced: indexing of a root starts after a quiet period and
+  a change during a run queues another. Summoning the palette also checks
+  the roots for changes, as a safety net for events that were lost. A
+  change rebuilds the root's zoekt shard: the builder does not update a
+  shard in place, so a root re-indexes whole, reusing the symbols of files
+  whose size and modification time are unchanged. A monorepo root limited
+  to a few services keeps this to seconds; delta shards are left until a
+  root proves too large for it.
 - **Log file.** Docent logs to `docent.log` in its cache directory (next to
   the index) as well as to stderr: launched from the desktop, a background
   app has no console, so a startup failure would otherwise leave no trace.
@@ -609,3 +637,15 @@ Decisions on open questions, with date and a short rationale.
   query rather than a new dependency. Grammars from elsewhere (Objective-C,
   Dart, Zig and others) each add C code to build on every platform, Windows
   included; they are left until there is a need for one.
+- **2026-11-07 — The index follows the files; open files reload.** Docent
+  exists to read code that agents write, and an agent writes while Docent
+  runs; an index from startup shows yesterday's code. Watching stays on
+  while Docent is in the background, at the cost of some indexing nobody is
+  looking at yet: an index that is current when summoned is the point, and
+  a check on every summon alone would make the first search after a change
+  wait. The viewer and the overview window reload a changed file when it
+  has no edits, since reading is the common case; with edits the user
+  decides, as in IntelliJ IDEA. Considered: polling the roots (stat of
+  every file every few seconds is not lightweight), indexing only while
+  Docent is visible (stale on summon), re-searching results after a change
+  (a moving list under the cursor).
