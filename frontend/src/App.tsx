@@ -9,6 +9,7 @@ import { Settings, type Section } from "./Settings";
 import { Tree } from "./Tree";
 import { crumbs, Highlighted, RowView, sameHit, type Row } from "./Rows";
 import { languageName } from "./languages";
+import { empty as noHistory, jump, step } from "./history";
 import { AgentAnswer, applyEvent, followUp, newRun, stepLabel, type Run } from "./Agent";
 import { capturing, label, matches } from "./keys";
 
@@ -99,6 +100,12 @@ export function App() {
   const toOverview = useRef<() => boolean>(() => false);
   // openPicker handles Cmd+P; called by the global key and event handlers.
   const openPicker = useRef<() => void>(() => {});
+  // navigate goes back or forward through the viewer's history (history.ts);
+  // called by the global key handler.
+  const navigate = useRef<(dir: -1 | 1) => void>(() => {});
+  const history = useRef(noHistory);
+  // viewerPlace is the viewer's file at its cursor, for the history.
+  const viewerPlace = useRef<Hit | null>(null);
 
   const focusInput = () => setTimeout(() => (input.current?.focus(), input.current?.select()), 0);
 
@@ -127,6 +134,7 @@ export function App() {
       // The palette keeps its tab and query and searches the new project;
       // an agent answer is not re-run (DESIGN.md, Switching projects).
       Events.On("project:switched", () => {
+        history.current = noHistory;
         setPicker(null);
         setList(null);
         setRun(null);
@@ -170,6 +178,9 @@ export function App() {
       if (matches(sc.nextResult, e) || matches(sc.prevResult, e)) {
         e.preventDefault();
         stepResult.current(matches(sc.nextResult, e) ? 1 : -1);
+      } else if (matches(sc.back, e) || matches(sc.forward, e)) {
+        e.preventDefault();
+        navigate.current(matches(sc.back, e) ? -1 : 1);
       } else if (matches(sc.overview, e)) {
         // Stop it here so the editor does not insert a line.
         if (toOverview.current()) (e.preventDefault(), e.stopPropagation());
@@ -249,7 +260,10 @@ export function App() {
     api.setLayout(layout);
   }, [layout]);
 
-  const openHit = useCallback(async (hit: Hit) => {
+  // openHit opens hit in the viewer; record is false when the history
+  // itself opens a place.
+  const openHit = useCallback(async (hit: Hit, record = true) => {
+    if (record) history.current = jump(history.current, viewerPlace.current, hit);
     try {
       const content = await api.readFile(hit.root, hit.path);
       setViewer({ hit, content });
@@ -502,6 +516,17 @@ export function App() {
     e.preventDefault();
   };
 
+  viewerPlace.current = mode === "viewer" && viewer ? (cursor ? { ...viewer.hit, line: cursor.line, column: cursor.column - 1 } : viewer.hit) : null;
+
+  navigate.current = (dir) => {
+    if (mode !== "viewer") return;
+    if (dirty) return setNotice("Save or discard changes before leaving the file");
+    const r = step(history.current, dir, viewerPlace.current);
+    if (!r) return;
+    history.current = r.history;
+    openHit(r.place, false);
+  };
+
   stepResult.current = (dir) => {
     if (mode !== "viewer" || !viewer || contextHits.length === 0) return;
     if (dirty) return setNotice("Save or discard changes before leaving the file");
@@ -570,10 +595,12 @@ export function App() {
     go(await usages(word));
   };
 
-  const footer = (
+  const showCursor = mode === "viewer" && viewer && cursor;
+  // The status bar is there only with something to show (DESIGN.md, Overview window).
+  const footer = (notice || statusLine(status, progress) || showCursor) && (
     <footer className="status">
       <span>{notice || statusLine(status, progress)}</span>
-      {mode === "viewer" && viewer && cursor && (
+      {showCursor && (
         <span>
           Ln {cursor.line}, Col {cursor.column} · {languageName(viewer.hit.path)}
         </span>

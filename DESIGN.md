@@ -283,7 +283,14 @@ every tab, so a change on one tab is not lost by looking at another.
   - `Alt+F7` finds usages of the symbol at the cursor.
   - Right-clicking a symbol offers both, with their shortcuts.
   - Several definitions, or usages, are shown as a list to choose from.
-- Back and forward navigation history.
+- **Back and forward**, as in IntelliJ IDEA: `Cmd+Alt+Left` and
+  `Cmd+Alt+Right` walk the places visited. A jump (opening a file or a
+  result, going to a definition or a usage) records where you were and
+  where you went; moving within a file does not. Having worked at line 120
+  of one file, jumped to line 2451 of another and then to its line 2601,
+  back twice returns to line 120 of the first. A jump after going back
+  drops the places ahead. The history belongs to the window and to the
+  project: switching projects starts afresh.
 - `Esc` or `Cmd+W` closes the file and returns to the palette, like closing
   a tab. With unsaved edits the first press reminds to save, a second one
   discards them.
@@ -337,6 +344,9 @@ screen.
 - **Code** as in the viewer: syntax highlighting, go to line, find in file,
   go to definition and find usages with the same keys and clicks,
   editing and saving, a breadcrumb path that reveals folders in the tree.
+- **Back and forward** as in the viewer: `Cmd+Alt+Left` / `Cmd+Alt+Right`
+  walk the places visited in the window; a closed tab reopens when the
+  history returns to it.
 - **Go to definition and find usages stay in the window:** a single
   definition opens in a tab; several definitions, or usages, are listed in a
   results panel below the code. Clicking a result opens it;
@@ -347,8 +357,9 @@ screen.
   links included). `Esc` returns to the window.
 - **Status bar** under the code, in the viewer as well. On the left, what
   is going on: indexing progress, a notice such as unsaved edits or nothing
-  found; empty otherwise. On the right, with a file open, the cursor's line
-  and column and the file's language. Index sizes are not shown here:
+  found. On the right, with a file open, the cursor's line and column and
+  the file's language. With nothing to show the bar is not there at all.
+  Index sizes are not shown here:
   Settings lists them per root (see [Settings](#settings)).
 - `Cmd+,` or the gear in the tab bar opens settings in the palette.
 - `Cmd+P` opens the project list in the palette. With two or more projects
@@ -397,7 +408,6 @@ Out of scope (after MVP):
 - Per-project agents: a project overriding the global agent (e.g. a work
   provider for work code).
 - Background index updates on file changes.
-- Navigation history in the viewer.
 - Navigating into library sources: definitions and usages outside the code
   roots (dependencies, the standard library).
 - Double `Shift` hotkey.

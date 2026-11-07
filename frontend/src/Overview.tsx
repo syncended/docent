@@ -7,6 +7,7 @@ import { Code, type At } from "./Code";
 import { Tree } from "./Tree";
 import { crumbs, RowView, sameHit } from "./Rows";
 import { definitionOrUsages, usages, type Where } from "./navigate";
+import { empty as noHistory, jump, step } from "./history";
 import { statusLine } from "./App";
 import { languageName } from "./languages";
 import { isMac, label, matches } from "./keys";
@@ -65,10 +66,16 @@ export function Overview() {
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   // views are the other projects' tabs, by project name, until Docent restarts.
   const views = useRef(new Map<string, ProjectView>());
+  // history is the places visited, for back and forward (history.ts).
+  const history = useRef(noHistory);
+  const cursorsRef = useRef(cursors);
+  cursorsRef.current = cursors;
   const texts = useRef(new Map<number, MutableRefObject<(() => string) | null>>());
   const panel = useRef<HTMLDivElement>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const viewRef = useRef<ProjectView>({ tabs, active, treeOpen });
   viewRef.current = { tabs, active, treeOpen };
   const statusRef = useRef(status);
@@ -86,8 +93,19 @@ export function Overview() {
     api.setOverviewDirty(anyDirty);
   }, [anyDirty]);
 
-  const openFile = async (hit: Hit, draft?: string) => {
+  // currentPlace is the active tab at its cursor, for the history.
+  const currentPlace = (): Hit | null => {
+    const t = tabsRef.current.find((t) => t.id === activeRef.current);
+    if (!t) return null;
+    const c = cursorsRef.current.get(t.id);
+    return c ? { ...t.hit, line: c.line, column: c.column - 1 } : t.hit;
+  };
+
+  // openFile opens hit in a tab; record is false when the history itself
+  // opens a place.
+  const openFile = async (hit: Hit, draft?: string, record = true) => {
     setNotice("");
+    if (record) history.current = jump(history.current, currentPlace(), hit);
     const open = tabsRef.current.find((t) => t.hit.root === hit.root && t.hit.path === hit.path);
     if (open) {
       const move = hit.line > 0;
@@ -156,6 +174,7 @@ export function Overview() {
   // Renaming the active project in settings also switches, from a name that
   // is gone to one never seen: the tabs then stay, as far as their roots do.
   const switched = async ({ from, to }: api.ProjectSwitch) => {
+    history.current = noHistory;
     const next = await api.getStatus();
     const current = viewRef.current;
     const renamed = !views.current.has(to) && !next.projects.includes(from);
@@ -336,6 +355,14 @@ export function Overview() {
     openFile(results.hits[i]);
   };
 
+  // navigate goes back or forward through the history.
+  const navigate = (dir: -1 | 1) => {
+    const r = step(history.current, dir, currentPlace());
+    if (!r) return;
+    history.current = r.history;
+    openFile(r.place, undefined, false);
+  };
+
   const stepResult = (dir: 1 | -1) => {
     if (!results || results.hits.length === 0) return;
     const n = results.hits.length;
@@ -414,6 +441,10 @@ export function Overview() {
     }
     if (matches(sc.nextResult, e) || matches(sc.prevResult, e)) {
       stepResult(matches(sc.nextResult, e) ? 1 : -1);
+      return true;
+    }
+    if (matches(sc.back, e) || matches(sc.forward, e)) {
+      navigate(matches(sc.back, e) ? -1 : 1);
       return true;
     }
     if (matches(sc.tree, e)) {
@@ -602,16 +633,18 @@ export function Overview() {
                 </button>
               </div>
             )}
-            <footer className="status">
-              <span>
-                {progress && <LoaderCircle size={11} className="spin" />} {notice || statusLine(status, progress)}
-              </span>
-              {tab && cursors.has(tab.id) && (
+            {(notice || statusLine(status, progress) || (tab && cursors.has(tab.id))) && (
+              <footer className="status">
                 <span>
-                  Ln {cursors.get(tab.id)!.line}, Col {cursors.get(tab.id)!.column} · {languageName(tab.hit.path)}
+                  {progress && <LoaderCircle size={11} className="spin" />} {notice || statusLine(status, progress)}
                 </span>
-              )}
-            </footer>
+                {tab && cursors.has(tab.id) && (
+                  <span>
+                    Ln {cursors.get(tab.id)!.line}, Col {cursors.get(tab.id)!.column} · {languageName(tab.hit.path)}
+                  </span>
+                )}
+              </footer>
+            )}
           </section>
           {results && (
             <div className="card ov-results" ref={panel} tabIndex={0} onKeyDown={onPanelKey}>
