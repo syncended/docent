@@ -8,6 +8,7 @@ import { definitionOrUsages, usages, type Where } from "./navigate";
 import { Settings, type Section } from "./Settings";
 import { Tree } from "./Tree";
 import { crumbs, Highlighted, RowView, sameHit, type Row } from "./Rows";
+import { languageName } from "./languages";
 import { AgentAnswer, applyEvent, followUp, newRun, stepLabel, type Run } from "./Agent";
 import { capturing, label, matches } from "./keys";
 
@@ -55,6 +56,8 @@ export function App() {
   const [indexVersion, setIndexVersion] = useState(0);
   const [notice, setNotice] = useState("");
   const [viewer, setViewer] = useState<Viewer | null>(null);
+  // cursor is the viewer's cursor position, for the status bar.
+  const [cursor, setCursor] = useState<{ line: number; column: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [discardArmed, setDiscardArmed] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -570,6 +573,11 @@ export function App() {
   const footer = (
     <footer className="status">
       <span>{notice || statusLine(status, progress)}</span>
+      {mode === "viewer" && viewer && cursor && (
+        <span>
+          Ln {cursor.line}, Col {cursor.column} · {languageName(viewer.hit.path)}
+        </span>
+      )}
     </footer>
   );
 
@@ -829,6 +837,7 @@ export function App() {
               <main className="viewer">
                 <Code
                   shortcuts={sc}
+                  onCursor={(line, column) => setCursor({ line, column })}
                   path={viewer.hit.path}
                   content={viewer.content}
                   line={viewer.hit.line}
@@ -893,16 +902,12 @@ function afterPaint(f: () => void) {
   requestAnimationFrame(() => requestAnimationFrame(() => f()));
 }
 
+// statusLine is what is going on, for the status bar: indexing, or nothing
+// (DESIGN.md, Overview window).
 export function statusLine(status: Status | null, progress: Progress | null): string {
   if (progress) return `Indexing ${progress.root}: ${progress.done}/${progress.total}`;
-  if (!status) return "";
-  if (status.indexing) return "Indexing…";
-  const files = status.roots.reduce((n, r) => n + r.files, 0);
-  const symbols = status.roots.reduce((n, r) => n + r.symbols, 0);
-  const roots = status.roots.length === 1 ? "1 root" : `${status.roots.length} roots`;
-  // The project is named only once there is more than one.
-  const project = status.projects.length > 1 ? `${status.project} · ` : "";
-  return `${project}${roots} · ${files.toLocaleString()} files · ${symbols.toLocaleString()} symbols`;
+  if (status?.indexing) return "Indexing…";
+  return "";
 }
 
 // filterProjects keeps the projects whose names contain the filter's

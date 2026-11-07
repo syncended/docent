@@ -8,6 +8,7 @@ import { Tree } from "./Tree";
 import { crumbs, RowView, sameHit } from "./Rows";
 import { definitionOrUsages, usages, type Where } from "./navigate";
 import { statusLine } from "./App";
+import { languageName } from "./languages";
 import { isMac, label, matches } from "./keys";
 
 // FileTab is a file open in a tab. content is the file as read from disk;
@@ -55,6 +56,8 @@ export function Overview() {
   } | null>(null);
   const [codeFocus, setCodeFocus] = useState(0);
   const [results, setResults] = useState<Results | null>(null);
+  // cursors are the cursor positions by tab, for the status bar.
+  const [cursors, setCursors] = useState(new Map<number, { line: number; column: number }>());
   const [notice, setNotice] = useState("");
   // discardArmed is the tab whose next close discards its edits.
   const [discardArmed, setDiscardArmed] = useState(0);
@@ -529,6 +532,7 @@ export function Overview() {
                 <div key={`${t.id}:${t.rev}`} className="ov-file" hidden={t.id !== active}>
                   <Code
                     shortcuts={sc}
+                    onCursor={(line, column) => setCursors((m) => new Map(m).set(t.id, { line, column }))}
                     path={t.hit.path}
                     content={t.draft ?? t.content}
                     original={t.content}
@@ -602,6 +606,11 @@ export function Overview() {
               <span>
                 {progress && <LoaderCircle size={11} className="spin" />} {notice || statusLine(status, progress)}
               </span>
+              {tab && cursors.has(tab.id) && (
+                <span>
+                  Ln {cursors.get(tab.id)!.line}, Col {cursors.get(tab.id)!.column} · {languageName(tab.hit.path)}
+                </span>
+              )}
             </footer>
           </section>
           {results && (

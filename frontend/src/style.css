@@ -540,6 +540,23 @@ mark {
   margin-left: auto;
 }
 
+.root-main {
+  flex: 0 0 42%;
+  min-width: 0;
+}
+
+.root-main .root-path {
+  flex: none;
+}
+
+.root-stats {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .root-path {
   flex: 0 0 42%;
   font-family: var(--mono);

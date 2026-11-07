@@ -11,6 +11,24 @@ type ProjectDraft = { key: number; name: string; roots: RootDraft[]; newPath: st
 
 let nextKey = 1;
 
+// rootStats describes what the index holds for a root: files, symbols and
+// when it was indexed; "" for a root that is not indexed.
+function rootStats(r: api.RootInfo | undefined): string {
+  if (!r) return "";
+  return `${r.files.toLocaleString()} files · ${r.symbols.toLocaleString()} symbols · indexed ${ago(r.indexedAt)}`;
+}
+
+// ago renders a time as "just now", "5 min ago", "3 h ago" or "2 days ago".
+function ago(at: string): string {
+  const s = (Date.now() - new Date(at).getTime()) / 1000;
+  if (!(s >= 0)) return "";
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  const d = Math.round(s / 86400);
+  return d === 1 ? "yesterday" : `${d} days ago`;
+}
+
 // Section is a settings tab (DESIGN.md, Settings).
 export type Section = "Projects" | "Agent" | "Palette" | "Shortcuts";
 
@@ -40,6 +58,8 @@ const providers: { id: api.Agent["provider"]; label: string; model: string; base
 // section, if given, is the tab to open at; otherwise the last one used.
 export function Settings(props: { section?: Section; onClose: () => void; onSaved: (message: string) => void }) {
   const [loaded, setLoaded] = useState<api.Settings | null>(null);
+  // indexed is what the index holds per root path, for the active project.
+  const [indexed, setIndexed] = useState<api.RootInfo[]>([]);
   const [section, setSection] = useState<Section>(props.section ?? lastSection);
   lastSection = section;
   const [projects, setProjects] = useState<ProjectDraft[]>([]);
@@ -56,6 +76,7 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
   const container = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    api.getStatus().then((s) => setIndexed(s.roots), () => {});
     api.getSettings().then(
       (s) => {
         setLoaded(s);
@@ -223,7 +244,10 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
               </div>
               {p.roots.map((r, i) => (
                 <div className="root-row" key={r.path}>
-                  <div className="root-path">{r.path}</div>
+                  <div className="root-main">
+                    <div className="root-path">{r.path}</div>
+                    {rootStats(indexed.find((x) => x.path === r.path)) && <div className="root-stats">{rootStats(indexed.find((x) => x.path === r.path))}</div>}
+                  </div>
                   <input
                     className="field"
                     placeholder="Subdirectories, comma-separated (empty = everything)"

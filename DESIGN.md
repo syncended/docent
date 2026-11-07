@@ -220,6 +220,9 @@ every tab, so a change on one tab is not lost by looking at another.
 - **Code roots** of a project: add a folder with the system folder picker or
   by typing a path, limit it to subdirectories, remove it. Saving re-indexes
   the active project in the background; search keeps working meanwhile.
+  Each root of the active project shows how many files and symbols its
+  index holds and when it was indexed, so a root limited to the wrong
+  subdirectories is easy to spot.
 - **Agent:** provider (Anthropic or OpenAI-compatible), model, optional base
   URL, API key. The key is written to the OS credential store and never shown
   again; it can be replaced or removed.
@@ -342,6 +345,11 @@ screen.
 - **Search** is the palette: the hotkey pressed over the window summons it,
   and results chosen there open as tabs in the window (agent answers'
   links included). `Esc` returns to the window.
+- **Status bar** under the code, in the viewer as well. On the left, what
+  is going on: indexing progress, a notice such as unsaved edits or nothing
+  found; empty otherwise. On the right, with a file open, the cursor's line
+  and column and the file's language. Index sizes are not shown here:
+  Settings lists them per root (see [Settings](#settings)).
 - `Cmd+,` or the gear in the tab bar opens settings in the palette.
 - `Cmd+P` opens the project list in the palette. With two or more projects
   the tab bar also shows the active project's name; clicking it does the same.

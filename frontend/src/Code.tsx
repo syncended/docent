@@ -29,6 +29,8 @@ export interface CodeProps {
   onDefinition?: (word: string, at: At) => void;
   onUsages?: (word: string) => void;
   onEscape?: () => void;
+  // onCursor reports the cursor's 1-based line and column as it moves.
+  onCursor?: (line: number, column: number) => void;
   // focus moves keyboard focus to the editor; it changes on every request.
   focus?: number;
   // reveal scrolls to line again; it changes on every request.
@@ -65,6 +67,7 @@ export function Code(props: CodeProps) {
     const keymaps = keys.current.of(commandKeymap(props.shortcuts ?? {}, latest));
     v.setState(EditorState.create({ doc: props.content, extensions: extensions(props.path, props.editable, original, latest, setMenu, keymaps) }));
     reveal(v, props.line, props.column ?? 0);
+    reportCursor(v, props);
     if (props.editable) v.focus();
   }, [props.path, props.content, props.original, props.editable]);
 
@@ -74,6 +77,7 @@ export function Code(props: CodeProps) {
 
   useEffect(() => {
     reveal(view.current!, props.line, props.column ?? 0);
+    reportCursor(view.current!, props);
   }, [props.line, props.column, props.reveal]);
 
   useEffect(() => {
@@ -177,8 +181,16 @@ function extensions(path: string, editable: boolean, original: string, latest: {
     }),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) latest.current.onDirty?.(u.state.doc.toString() !== original);
+      if (u.selectionSet || u.docChanged) reportCursor(u.view, latest.current);
     }),
   ];
+}
+
+function reportCursor(v: EditorView, props: CodeProps) {
+  if (!props.onCursor) return;
+  const head = v.state.selection.main.head;
+  const l = v.state.doc.lineAt(head);
+  props.onCursor(l.number, head - l.from + 1);
 }
 
 function reveal(v: EditorView, line: number, column: number) {

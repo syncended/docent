@@ -71,6 +71,28 @@ const byExtension: Record<string, () => Extension> = {
   toml: () => StreamLanguage.define(toml),
 };
 
+// names are the languages shown in the status bar, by extension; a file
+// of another kind is named after its extension.
+const names: Record<string, string> = {
+  ts: "TypeScript", mts: "TypeScript", cts: "TypeScript", tsx: "TSX",
+  js: "JavaScript", mjs: "JavaScript", cjs: "JavaScript", jsx: "JSX",
+  java: "Java", kt: "Kotlin", kts: "Kotlin", c: "C", cc: "C++", cpp: "C++", cxx: "C++", h: "C/C++ header", hh: "C++", hpp: "C++",
+  go: "Go", rs: "Rust", swift: "Swift", cs: "C#", scala: "Scala", sc: "Scala",
+  rb: "Ruby", rake: "Ruby", gemspec: "Ruby", py: "Python", pyi: "Python", lua: "Lua", groovy: "Groovy", gradle: "Gradle",
+  elm: "Elm", ml: "OCaml", mli: "OCaml", php: "PHP", ex: "Elixir", exs: "Elixir", proto: "Protobuf",
+  md: "Markdown", mdx: "Markdown", json: "JSON", yaml: "YAML", yml: "YAML", toml: "TOML", sql: "SQL",
+  css: "CSS", html: "HTML", svelte: "Svelte", vue: "Vue", sh: "Shell", bash: "Shell", tf: "Terraform", tfvars: "Terraform", hcl: "HCL",
+};
+
+// languageName returns the language of a file path for people.
+export function languageName(path: string): string {
+  const file = path.slice(path.lastIndexOf("/") + 1);
+  const dot = file.lastIndexOf(".");
+  if (dot <= 0) return "Plain text";
+  const ext = file.slice(dot + 1).toLowerCase();
+  return names[ext] ?? ext.toUpperCase();
+}
+
 // languageFor returns the syntax highlighting for a file path.
 export function languageFor(path: string): Extension {
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
