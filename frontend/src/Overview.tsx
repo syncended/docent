@@ -72,6 +72,7 @@ export function Overview() {
   cursorsRef.current = cursors;
   const texts = useRef(new Map<number, MutableRefObject<(() => string) | null>>());
   const panel = useRef<HTMLDivElement>(null);
+  const tabRow = useRef<HTMLDivElement>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeRef = useRef(active);
@@ -92,6 +93,11 @@ export function Overview() {
   useEffect(() => {
     api.setOverviewDirty(anyDirty);
   }, [anyDirty]);
+
+  // The active tab stays in view when the row scrolls (DESIGN.md, Overview window).
+  useEffect(() => {
+    tabRow.current?.querySelector(".ov-tab.active")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [active, tabs.length]);
 
   // currentPlace is the active tab at its cursor, for the history.
   const currentPlace = (): Hit | null => {
@@ -495,7 +501,14 @@ export function Overview() {
             <FolderTree size={14} strokeWidth={2} />
           </button>
         )}
-        <div className="ov-tabs">
+        <div
+          className="ov-tabs"
+          ref={tabRow}
+          onWheel={(e) => {
+            // The wheel scrolls the row sideways.
+            if (e.deltaY && !e.deltaX) tabRow.current?.scrollBy({ left: e.deltaY });
+          }}
+        >
           {tabs.map((t) => (
             <div
               key={t.id}

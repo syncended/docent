@@ -340,7 +340,8 @@ screen.
   already open. `Ctrl+Tab` / `Ctrl+Shift+Tab` switch tabs; `Cmd+W` closes the
   active tab, and with unsaved edits the first press reminds to save, a
   second one discards them. Clicking a tab's close button with unsaved edits
-  works the same way.
+  works the same way. When the tabs do not fit, the row scrolls: the wheel
+  over it scrolls sideways, and the active tab is always scrolled into view.
 - **Code** as in the viewer: syntax highlighting, go to line, find in file,
   go to definition and find usages with the same keys and clicks,
   editing and saving, a breadcrumb path that reveals folders in the tree.

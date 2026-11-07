@@ -1315,6 +1315,15 @@ mark {
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+
+.ov-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ov-tab {
+  flex: none;
 }
 
 .ov-tab {
