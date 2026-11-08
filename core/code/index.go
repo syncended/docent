@@ -142,6 +142,7 @@ func Open(cfg *config.Config, dir string) error {
 	roots = loaded
 	mu.Unlock()
 	closeText(old)
+	rewatch()
 	// Best effort: a cache that cannot be deleted now goes at the next Open.
 	removeStale(cfg)
 	return nil
@@ -247,6 +248,7 @@ func Reindex(ctx context.Context, progress func(Progress)) error {
 			errs = append(errs, err)
 		}
 	}
+	rewatch()
 	return errors.Join(errs...)
 }
 
@@ -558,13 +560,20 @@ func ListDir(id, dir string) ([]Entry, error) {
 	return entries, nil
 }
 
-// WriteFile replaces the content of an existing file in a root.
+// WriteFile replaces the content of a file in a root. A file that is gone,
+// deleted since it was opened, is created again (DESIGN.md, Editing).
 func WriteFile(root, path, content string) error {
 	_, abs, err := resolve(root, path)
 	if err != nil {
 		return err
 	}
 	info, err := os.Stat(abs)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(abs, []byte(content), 0o644)
+	}
 	if err != nil {
 		return err
 	}

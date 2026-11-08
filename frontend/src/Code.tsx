@@ -54,6 +54,9 @@ export function Code(props: CodeProps) {
   // keys holds the command bindings, replaced when the shortcuts change.
   const keys = useRef(new Compartment());
   const [menu, setMenu] = useState<Menu | null>(null);
+  // shown is the file the editor state was created for; the same file
+  // with new content is replaced in place instead.
+  const shown = useRef<{ path: string; editable: boolean } | null>(null);
 
   useEffect(() => {
     view.current = new EditorView({ parent: host.current! });
@@ -63,9 +66,16 @@ export function Code(props: CodeProps) {
 
   useEffect(() => {
     const v = view.current!;
-    const original = props.original ?? props.content;
+    if (shown.current?.path === props.path && shown.current.editable === props.editable) {
+      // The file changed on disk, or was saved: the text is replaced in
+      // place, keeping the cursor and the scroll position as far as the
+      // new text allows (DESIGN.md, Editing).
+      replaceText(v, props.content);
+      return;
+    }
+    shown.current = { path: props.path, editable: props.editable };
     const keymaps = keys.current.of(commandKeymap(props.shortcuts ?? {}, latest));
-    v.setState(EditorState.create({ doc: props.content, extensions: extensions(props.path, props.editable, original, latest, setMenu, keymaps) }));
+    v.setState(EditorState.create({ doc: props.content, extensions: extensions(props.path, props.editable, latest, setMenu, keymaps) }));
     reveal(v, props.line, props.column ?? 0);
     reportCursor(v, props);
     if (props.editable) v.focus();
@@ -148,7 +158,7 @@ function commandKeymap(shortcuts: Shortcuts, latest: { current: CodeProps }): Ex
   return Prec.high(keymap.of(bindings));
 }
 
-function extensions(path: string, editable: boolean, original: string, latest: { current: CodeProps }, setMenu: (m: Menu | null) => void, keymaps: Extension): Extension[] {
+function extensions(path: string, editable: boolean, latest: { current: CodeProps }, setMenu: (m: Menu | null) => void, keymaps: Extension): Extension[] {
   return [
     keymaps,
     basicSetup,
@@ -180,7 +190,7 @@ function extensions(path: string, editable: boolean, original: string, latest: {
       },
     }),
     EditorView.updateListener.of((u) => {
-      if (u.docChanged) latest.current.onDirty?.(u.state.doc.toString() !== original);
+      if (u.docChanged) latest.current.onDirty?.(u.state.doc.toString() !== (latest.current.original ?? latest.current.content));
       if (u.selectionSet || u.docChanged) reportCursor(u.view, latest.current);
     }),
   ];
@@ -191,6 +201,23 @@ function reportCursor(v: EditorView, props: CodeProps) {
   const head = v.state.selection.main.head;
   const l = v.state.doc.lineAt(head);
   props.onCursor(l.number, head - l.from + 1);
+}
+
+// replaceText puts text in place of the editor's, keeping the cursor at its
+// line and column and the view where it was scrolled to.
+function replaceText(v: EditorView, text: string) {
+  const doc = v.state.doc;
+  if (doc.toString() === text) return;
+  const head = v.state.selection.main.head;
+  const l = doc.lineAt(head);
+  const line = l.number;
+  const column = head - l.from;
+  const top = v.scrollDOM.scrollTop;
+  v.dispatch({ changes: { from: 0, to: doc.length, insert: text } });
+  const next = v.state.doc;
+  const nl = next.line(Math.min(line, next.lines));
+  v.dispatch({ selection: { anchor: nl.from + Math.min(column, nl.length) } });
+  requestAnimationFrame(() => (v.scrollDOM.scrollTop = top));
 }
 
 function reveal(v: EditorView, line: number, column: number) {

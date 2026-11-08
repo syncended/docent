@@ -110,6 +110,36 @@ func walkFiles(ctx context.Context, root config.Root) ([]string, error) {
 	return paths, nil
 }
 
+// Watchable reports whether the directory at rel, a slash-separated path
+// relative to the root ("" for the root itself), can hold indexed files or
+// lead to a directory that does: it is inside one of the root's include
+// directories or above one, is not excluded, and has no hidden or skipped
+// component.
+func Watchable(root config.Root, rel string) bool {
+	rel = strings.Trim(rel, "/")
+	if rel == "" || rel == "." {
+		return true
+	}
+	for _, name := range strings.Split(rel, "/") {
+		if skipDirs[name] || strings.HasPrefix(name, ".") {
+			return false
+		}
+	}
+	if excluded(root, rel) {
+		return false
+	}
+	if len(root.Include) == 0 {
+		return true
+	}
+	for _, inc := range root.Include {
+		inc = strings.Trim(inc, "/")
+		if inc == "" || inc == "." || rel == inc || strings.HasPrefix(rel, inc+"/") || strings.HasPrefix(inc, rel+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func excluded(root config.Root, p string) bool {
 	for _, pattern := range root.Exclude {
 		if ok, _ := doublestar.Match(pattern, p); ok {

@@ -63,6 +63,17 @@ export interface Status {
   roots: RootInfo[];
 }
 
+// Change is a batch of files that changed on disk in a root, as slash
+// paths relative to it; paths is null when anything in the root may have
+// changed (core/code/watch.go).
+export interface Change {
+  root: string;
+  paths: string[] | null;
+}
+
+// affects reports whether a change may concern the file at root/path.
+export const affects = (c: Change, root: string, path: string) => c.root === root && (c.paths === null || c.paths.includes(path));
+
 export interface Progress {
   root: string;
   done: number;

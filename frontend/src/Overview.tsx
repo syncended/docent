@@ -8,13 +8,15 @@ import { Tree } from "./Tree";
 import { crumbs, RowView, sameHit } from "./Rows";
 import { definitionOrUsages, usages, type Where } from "./navigate";
 import { empty as noHistory, jump, step } from "./history";
-import { statusLine } from "./App";
+import { diskNotice, statusLine } from "./App";
 import { languageName } from "./languages";
 import { isMac, label, matches } from "./keys";
 
 // FileTab is a file open in a tab. content is the file as read from disk;
 // draft is unsaved text the tab was opened with. rev remounts the editor
-// (new draft, discarded edits); reveal scrolls to hit's line again.
+// (new draft, discarded edits); reveal scrolls to hit's line again. onDisk
+// is set when the file changed on disk while the tab had unsaved edits, or
+// when it was deleted (DESIGN.md, Editing).
 type FileTab = {
   id: number;
   hit: Hit;
@@ -23,6 +25,7 @@ type FileTab = {
   dirty: boolean;
   rev: number;
   reveal: number;
+  onDisk?: "changed" | "deleted";
 };
 
 // Results is the results panel: definitions or usages to choose from.
@@ -33,8 +36,9 @@ type Results = { title: string; hits: Hit[]; selected: number };
 type ProjectView = { tabs: FileTab[]; active: number; treeOpen: boolean };
 
 // Prompt asks about unsaved edits before closing the window or switching
-// to another project.
-type Prompt = { kind: "close" } | { kind: "switch"; project: string };
+// to another project, or whether to overwrite a file that changed on disk.
+type EditsPrompt = { kind: "close" } | { kind: "switch"; project: string };
+type Prompt = EditsPrompt | { kind: "overwrite"; id: number };
 
 let nextTab = 1;
 
@@ -210,6 +214,24 @@ export function Overview() {
     setCodeFocus((n) => n + 1);
   };
 
+  // filesChanged brings the tabs a change on disk concerns up to date: a
+  // tab without edits reloads in place, one with edits is marked, and a
+  // deleted file's tab stays, marked (DESIGN.md, Editing).
+  const filesChanged = async (c: api.Change) => {
+    const hit = tabsRef.current.filter((t) => api.affects(c, t.hit.root, t.hit.path));
+    const read = await Promise.all(hit.map((t) => api.readFile(t.hit.root, t.hit.path).then((content) => ({ t, content }), () => ({ t, content: null }))));
+    setTabs((ts) =>
+      ts.map((t) => {
+        const r = read.find((r) => r.t.id === t.id);
+        if (!r) return t;
+        if (r.content === null) return { ...t, onDisk: "deleted" };
+        if (r.content === t.content) return t.onDisk === "deleted" ? { ...t, onDisk: undefined } : t;
+        if (t.dirty) return { ...t, onDisk: "changed" };
+        return { ...t, content: r.content, draft: undefined, onDisk: undefined };
+      }),
+    );
+  };
+
   // requestSwitch is the shell asking to switch with unsaved edits here.
   const requestSwitch = async (project: string) => {
     if (tabsRef.current.some((t) => t.dirty)) return setPrompt({ kind: "switch", project });
@@ -223,8 +245,8 @@ export function Overview() {
   };
 
   // Event handlers are registered once; they call the latest versions.
-  const handlers = useRef({ openFile, requestClose, requestSwitch, switched });
-  handlers.current = { openFile, requestClose, requestSwitch, switched };
+  const handlers = useRef({ openFile, requestClose, requestSwitch, switched, filesChanged });
+  handlers.current = { openFile, requestClose, requestSwitch, switched, filesChanged };
 
   useEffect(() => {
     api.getStatus().then(setStatus);
@@ -236,6 +258,7 @@ export function Overview() {
       Events.On("overview:close", () => handlers.current.requestClose()),
       Events.On("overview:switch", (e) => handlers.current.requestSwitch(e.data as string)),
       Events.On("project:switched", (e) => handlers.current.switched(e.data as api.ProjectSwitch)),
+      Events.On("files:changed", (e) => handlers.current.filesChanged(e.data as api.Change)),
       Events.On("index:progress", (e) => {
         const p = e.data as Progress;
         setProgress(p);
@@ -288,11 +311,37 @@ export function Overview() {
     if (discardArmed === id) setDiscardArmed(0);
   };
 
+  // save writes a tab's text. A file that changed on disk meanwhile is
+  // asked about first; a deleted one is created again (DESIGN.md, Editing).
   const save = async (t: FileTab, text: string) => {
+    if (t.onDisk === "changed") return setPrompt({ kind: "overwrite", id: t.id });
     try {
       await api.writeFile(t.hit.root, t.hit.path, text);
-      setDirty(t.id, false);
+      setTabs((ts) => ts.map((x) => (x.id === t.id ? { ...x, content: text, draft: undefined, dirty: false, onDisk: undefined } : x)));
+      if (discardArmed === t.id) setDiscardArmed(0);
       setNotice(`Saved ${t.hit.path}`);
+    } catch (e) {
+      setNotice((e as Error).message);
+    }
+  };
+
+  // overwrite saves over a file that changed on disk; reload drops the
+  // tab's edits for what is on disk.
+  const overwrite = async (id: number) => {
+    setPrompt(null);
+    const t = tabsRef.current.find((t) => t.id === id);
+    const text = texts.current.get(id)?.current?.();
+    if (t && text !== undefined) await save({ ...t, onDisk: undefined }, text);
+  };
+
+  const reload = async (id: number) => {
+    setPrompt(null);
+    const t = tabsRef.current.find((t) => t.id === id);
+    if (!t) return;
+    try {
+      const content = await api.readFile(t.hit.root, t.hit.path);
+      setTabs((ts) => ts.map((x) => (x.id === id ? { ...x, content, draft: undefined, dirty: false, onDisk: undefined, rev: x.rev + 1 } : x)));
+      if (discardArmed === id) setDiscardArmed(0);
     } catch (e) {
       setNotice((e as Error).message);
     }
@@ -300,7 +349,7 @@ export function Overview() {
 
   // afterPrompt closes the window or switches projects, once the edits it
   // asked about are saved or discarded.
-  const afterPrompt = async (p: Prompt) => {
+  const afterPrompt = async (p: EditsPrompt) => {
     setPrompt(null);
     if (p.kind === "close") return api.hideOverview();
     try {
@@ -311,7 +360,7 @@ export function Overview() {
     }
   };
 
-  const saveAll = async (p: Prompt) => {
+  const saveAll = async (p: EditsPrompt) => {
     try {
       for (const t of dirtyTabs) {
         const text = texts.current.get(t.id)?.current?.();
@@ -325,7 +374,7 @@ export function Overview() {
   };
 
   // discardAll reloads edited tabs from disk.
-  const discardAll = async (p: Prompt) => {
+  const discardAll = async (p: EditsPrompt) => {
     const reloaded = await Promise.all(
       tabs.map(async (t) => {
         if (!t.dirty) return t;
@@ -481,6 +530,7 @@ export function Overview() {
   }, []);
 
   const noRoots = status !== null && status.roots.length === 0;
+  const diskNote = tab ? diskNotice(tab.hit.path, tab.onDisk, sc.save) : "";
   const textRef = (id: number) => {
     let ref = texts.current.get(id);
     if (!ref) texts.current.set(id, (ref = { current: null }));
@@ -629,7 +679,21 @@ export function Overview() {
                 </div>
               )}
             </main>
-            {prompt && (
+            {prompt && prompt.kind === "overwrite" && (
+              <div className="ov-prompt">
+                <span>{fileName(tabs.find((t) => t.id === prompt.id)?.hit.path ?? "")} changed on disk</span>
+                <button className="pill active" onClick={() => overwrite(prompt.id)}>
+                  Overwrite
+                </button>
+                <button className="pill" onClick={() => reload(prompt.id)}>
+                  Reload
+                </button>
+                <button className="pill" onClick={() => setPrompt(null)}>
+                  Cancel
+                </button>
+              </div>
+            )}
+            {prompt && prompt.kind !== "overwrite" && (
               <div className="ov-prompt">
                 <span>
                   Unsaved changes in {dirtyTabs.length === 1 ? fileName(dirtyTabs[0].hit.path) : `${dirtyTabs.length} files`}
@@ -646,10 +710,10 @@ export function Overview() {
                 </button>
               </div>
             )}
-            {(notice || statusLine(status, progress) || (tab && cursors.has(tab.id))) && (
+            {(notice || diskNote || statusLine(status, progress) || (tab && cursors.has(tab.id))) && (
               <footer className="status">
                 <span>
-                  {progress && <LoaderCircle size={11} className="spin" />} {notice || statusLine(status, progress)}
+                  {progress && <LoaderCircle size={11} className="spin" />} {notice || diskNote || statusLine(status, progress)}
                 </span>
                 {tab && cursors.has(tab.id) && (
                   <span>

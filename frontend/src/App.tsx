@@ -26,7 +26,9 @@ const tabs: { tab: Tab; label: string; icon: LucideIcon; shortcut?: string }[] =
 // A list that replaces search results, e.g. usages opened from the viewer.
 type List = { title: string; hits: Hit[] };
 
-type Viewer = { hit: Hit; content: string };
+// Viewer is the open file. onDisk is set when it changed on disk while
+// edited, or was deleted (DESIGN.md, Editing).
+type Viewer = { hit: Hit; content: string; onDisk?: "changed" | "deleted" };
 
 // Picker is the project list (DESIGN.md, Switching projects); its filter is
 // typed into the search bar in place of the query.
@@ -55,12 +57,18 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [indexVersion, setIndexVersion] = useState(0);
+  // treeVersion refreshes the tree after indexing; indexVersion also
+  // re-runs the search, which a change on disk alone does not.
+  const [treeVersion, setTreeVersion] = useState(0);
   const [notice, setNotice] = useState("");
   const [viewer, setViewer] = useState<Viewer | null>(null);
   // cursor is the viewer's cursor position, for the status bar.
   const [cursor, setCursor] = useState<{ line: number; column: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [discardArmed, setDiscardArmed] = useState(false);
+  // overwriteArmed is set once save was pressed on a file that changed
+  // on disk: the next save overwrites it.
+  const [overwriteArmed, setOverwriteArmed] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   // followUpField is the follow-up field under an agent answer, when shown.
   const followUpField = useRef<HTMLInputElement>(null);
@@ -71,6 +79,11 @@ export function App() {
   const [codeFocus, setCodeFocus] = useState(0);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  // filesChanged acts on a change on disk; the event handler, registered
+  // once, calls the latest version.
+  const filesChanged = useRef<(c: api.Change) => void>(() => {});
   // sc is the shortcut bindings (shortcuts.go); the global key handler,
   // registered once, reads the latest through scRef.
   const sc = status?.shortcuts ?? {};
@@ -166,8 +179,11 @@ export function App() {
       Events.On("index:done", () => {
         setProgress(null);
         api.getStatus().then(setStatus);
-        setIndexVersion((v) => v + 1);
+        setTreeVersion((v) => v + 1);
+        // Results are not re-searched on their own (DESIGN.md, Code sources).
+        if (rowsRef.current.length === 0) setIndexVersion((v) => v + 1);
       }),
+      Events.On("files:changed", (e) => filesChanged.current(e.data as api.Change)),
     ];
     // Window shortcuts (keys.ts): close goes back to search from the viewer
     // and hides the window elsewhere; the rest are the viewer's commands
@@ -269,6 +285,7 @@ export function App() {
       setViewer({ hit, content });
       setDirty(false);
       setDiscardArmed(false);
+      setOverwriteArmed(false);
       setMode("viewer");
       setNotice("");
     } catch (e) {
@@ -383,6 +400,7 @@ export function App() {
     }
     setDirty(false);
     setDiscardArmed(false);
+    setOverwriteArmed(false);
     setNotice("");
     setMode("palette");
     focusInput();
@@ -414,15 +432,46 @@ export function App() {
     return true;
   };
 
+  // save writes the viewer's text. A file that changed on disk meanwhile
+  // is overwritten only by a second save; a deleted one is created again
+  // (DESIGN.md, Editing).
   const save = async (text: string) => {
     if (!viewer) return;
+    if (viewer.onDisk === "changed" && !overwriteArmed) {
+      setOverwriteArmed(true);
+      setNotice(`${baseName(viewer.hit.path)} changed on disk: ${label(sc.save)} again to overwrite, ${label(sc.close)} twice to discard your edits`);
+      return;
+    }
     try {
       await api.writeFile(viewer.hit.root, viewer.hit.path, text);
+      setViewer((v) => v && { ...v, content: text, onDisk: undefined });
       setDirty(false);
       setDiscardArmed(false);
+      setOverwriteArmed(false);
       setNotice(`Saved ${viewer.hit.path}`);
     } catch (e) {
       setNotice((e as Error).message);
+    }
+  };
+
+  // The viewer follows a change on disk: without edits the file reloads in
+  // place, with edits it is marked, and a deleted file stays, marked
+  // (DESIGN.md, Editing). Previews read the files again.
+  filesChanged.current = async (c) => {
+    forgetPreviews(c);
+    const v = viewer;
+    if (!v || !api.affects(c, v.hit.root, v.hit.path)) return;
+    const same = (cur: Viewer | null) => cur && cur.hit.root === v.hit.root && cur.hit.path === v.hit.path;
+    try {
+      const content = await api.readFile(v.hit.root, v.hit.path);
+      setViewer((cur) => {
+        if (!same(cur)) return cur;
+        if (content === cur!.content) return cur!.onDisk === "deleted" ? { ...cur!, onDisk: undefined } : cur;
+        if (dirtyRef.current) return { ...cur!, onDisk: "changed" };
+        return { ...cur!, content, onDisk: undefined };
+      });
+    } catch {
+      setViewer((cur) => (same(cur) ? { ...cur!, onDisk: "deleted" } : cur));
     }
   };
 
@@ -596,10 +645,11 @@ export function App() {
   };
 
   const showCursor = mode === "viewer" && viewer && cursor;
+  const diskNote = mode === "viewer" && viewer ? diskNotice(viewer.hit.path, viewer.onDisk, sc.save) : "";
   // The status bar is there only with something to show (DESIGN.md, Overview window).
-  const footer = (notice || statusLine(status, progress) || showCursor) && (
+  const footer = (notice || diskNote || statusLine(status, progress) || showCursor) && (
     <footer className="status">
-      <span>{notice || statusLine(status, progress)}</span>
+      <span>{notice || diskNote || statusLine(status, progress)}</span>
       {showCursor && (
         <span>
           Ln {cursor.line}, Col {cursor.column} · {languageName(viewer.hit.path)}
@@ -825,7 +875,7 @@ export function App() {
                       roots={[{ id: viewer.hit.root, name: viewer.hit.rootName }]}
                       file={viewer.hit}
                       reveal={treeReveal}
-                      version={indexVersion}
+                      version={treeVersion}
                       focus={treeFocus}
                       onOpen={(_, path) => openFromTree(path)}
                       onEscape={() => setCodeFocus((n) => n + 1)}
@@ -937,6 +987,16 @@ export function statusLine(status: Status | null, progress: Progress | null): st
   return "";
 }
 
+const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+
+// diskNotice is the status bar's line about a file changed or deleted on
+// disk (DESIGN.md, Editing); "" when neither.
+export function diskNotice(path: string, onDisk: "changed" | "deleted" | undefined, save: string | undefined): string {
+  if (onDisk === "changed") return `${baseName(path)} changed on disk: ${label(save)} to overwrite or reload`;
+  if (onDisk === "deleted") return `${baseName(path)} was deleted: ${label(save)} to create it again`;
+  return "";
+}
+
 // filterProjects keeps the projects whose names contain the filter's
 // characters in order, ignoring case, with the matched positions; names
 // where they are closer together come first.
@@ -956,6 +1016,14 @@ export function filterProjects(names: string[], filter: string): { name: string;
 }
 
 const fileCache = new Map<string, string>();
+
+// forgetPreviews drops the cached files a change on disk concerns.
+function forgetPreviews(c: api.Change) {
+  for (const key of [...fileCache.keys()]) {
+    const slash = key.indexOf("/");
+    if (api.affects(c, key.slice(0, slash), key.slice(slash + 1))) fileCache.delete(key);
+  }
+}
 
 function Preview({ hit }: { hit: Hit }) {
   const [content, setContent] = useState<string | null>(null);

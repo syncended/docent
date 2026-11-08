@@ -64,6 +64,7 @@ var layouts = map[string]struct{ width, height int }{
 func init() {
 	application.RegisterEvent[code.Progress]("index:progress")
 	application.RegisterEvent[[]code.RootInfo]("index:done")
+	application.RegisterEvent[code.Change]("files:changed")
 	application.RegisterEvent[string]("palette:shown")
 	application.RegisterEvent[string]("palette:search")
 	application.RegisterEvent[string]("settings:open")
@@ -167,6 +168,16 @@ func run() error {
 		}
 	})
 
+	// The index follows the files (DESIGN.md, Code sources). Started once
+	// app exists, as changes are sent to the windows through it.
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	defer stopWatch()
+	go func() {
+		if err := code.Watch(watchCtx, watchQuiet, filesChanged); err != nil {
+			log.Printf("watch: %v", err)
+		}
+	}()
+
 	newOverview()
 	// Clicking the Dock icon brings the overview window back.
 	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) { showOverview() })
@@ -207,8 +218,12 @@ func togglePalette() {
 	hidePalette()
 }
 
-// showPalette summons the palette.
-func showPalette() { summon("palette:shown") }
+// showPalette summons the palette. It also checks the roots for changes, a
+// safety net for file events that were lost (DESIGN.md, Technical decisions).
+func showPalette() {
+	summon("palette:shown")
+	go reindex()
+}
 
 // summon shows the palette and sends event to the frontend. Over the focused
 // overview window its results open there; the event's data tells which.
@@ -416,6 +431,17 @@ func rememberMove() {
 }
 
 func abs(n int) int { return max(n, -n) }
+
+// watchQuiet is how long the files have to stay unchanged before a batch of
+// changes is acted on: a `git checkout` is one batch, not hundreds.
+const watchQuiet = 1500 * time.Millisecond
+
+// filesChanged acts on a batch of changed files: the windows reload the
+// files they have open, and the index is brought up to date.
+func filesChanged(c code.Change) {
+	app.Event.Emit("files:changed", c)
+	go reindex()
+}
 
 // reindex updates the index in the background, reporting progress to the UI.
 // A request made while indexing runs another pass when the current one ends.
