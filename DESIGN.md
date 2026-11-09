@@ -189,9 +189,8 @@ Search modes are tabs, as in IntelliJ IDEA's Search Everywhere:
 Two kinds of agents, interchangeable from the user's point of view:
 
 - **Built-in agent.** Works out of the box with just an API key: the user picks
-  a provider, pastes a key, chooses a model. Supported providers: Anthropic and
-  any OpenAI-compatible API (OpenAI, DeepSeek, OpenRouter, local servers such as
-  Ollama, etc.).
+  a provider, pastes a key, picks a model (see
+  [Providers and models](#providers-and-models)).
 - **External agent.** An existing agent harness (Claude Code, Codex, opencode,
   etc.) connected by its launch command. It brings its own models, configuration,
   credentials and tools.
@@ -214,6 +213,53 @@ For both kinds:
 - Several agents can be configured; one is the default, another can be chosen
   per query.
 
+### Providers and models
+
+The built-in agent talks to a model provider. Docent knows the common ones,
+so setting one up is choosing it and pasting a key:
+
+| Kind                | Providers                                                       |
+|---------------------|-----------------------------------------------------------------|
+| Model vendors       | OpenAI, Anthropic, Google, xAI, Mistral, DeepSeek, Z.ai, Moonshot (Kimi), Alibaba (Qwen), MiniMax |
+| Hosts, aggregators  | OpenRouter, Groq, Together, Fireworks                           |
+| Local servers       | Ollama, LM Studio                                               |
+| Custom              | Any other OpenAI-compatible endpoint, by its base URL           |
+
+- **A provider preset** knows its endpoint, how to talk to its API and its
+  models. Picking one needs only a key; a local server needs none.
+- **Regions and plans.** A vendor with several endpoints — an international
+  and a China one, or a coding plan billed apart from the pay-as-you-go
+  API — offers them as a choice next to the key, instead of a URL to look up.
+  The base URL can still be overridden, for a proxy.
+- **Model picker.** Once a key is there, Docent asks the provider which models
+  the key can use and lists them; a local server lists the models it has.
+  Before a key is entered, or when the provider cannot be reached, the picker
+  lists the models Docent knows for that provider. Typing filters the list
+  (fuzzy, as in the Files tab). An id that is not listed can be typed and
+  used as is, so a model released yesterday works before Docent learns of it.
+- **Known models are described.** A model Docent knows shows its name,
+  context window and whether it reasons, rather than a bare id. The model
+  Docent recommends for code search on that provider is marked and chosen by
+  default.
+- **Known models are recognized anywhere.** Docent recognizes a model by its
+  id wherever it is served — on its vendor's API, an aggregator, a local
+  server or a custom endpoint — and treats it as it would on its vendor's
+  API: reasoning turned on and shown as progress, its tool calling quirks
+  handled. `deepseek/deepseek-v4` on OpenRouter and `glm-5` behind a company
+  proxy behave as they do at DeepSeek and Z.ai; the picker shows them as
+  known. A model Docent does not know gets plain OpenAI-compatible behavior.
+- **Reasoning effort.** For a model that lets its reasoning effort be set,
+  the picker offers low, medium and high. The default is the effort Docent
+  finds right for code search on that model, not the provider's own, which
+  for some models is the maximum: slow and costly for finding code. The
+  choice is kept per provider, with the model; a model that cannot be tuned
+  shows no choice.
+- **Known endpoints are recognized.** A base URL of a provider Docent has a
+  preset for, typed into Custom, switches to that preset, key included.
+- **Each provider keeps its own settings:** model, reasoning effort, region
+  or base URL, and key. Switching to another provider and back loses nothing; providers with
+  a stored key are marked. One provider is active and answers queries.
+
 ### Settings
 
 Opened with `Cmd+,` from the palette or the overview window, from the menu bar
@@ -231,9 +277,12 @@ every tab, so a change on one tab is not lost by looking at another.
   Each root of the active project shows how many files and symbols its
   index holds and when it was indexed, so a root limited to the wrong
   subdirectories is easy to spot.
-- **Agent:** provider (Anthropic or OpenAI-compatible), model, optional base
-  URL, API key. The key is written to the OS credential store and never shown
-  again; it can be replaced or removed.
+- **Agent:** the providers as a list grouped by kind, the active one first
+  and those with a key marked; choosing one shows its region or plan, base
+  URL, API key and the model picker (see
+  [Providers and models](#providers-and-models)). Saving makes the chosen
+  provider active. A key is written to the OS credential store and never
+  shown again; it can be replaced or removed.
 - **Palette:** which screen it opens on: the one with the focused window
   (default), the one with the pointer, or the primary screen.
 - **Shortcuts:** every command with its binding: search everywhere (the
@@ -416,8 +465,9 @@ In scope:
   find usages, basic editing and saving, project tree.
 - Overview window: opened on launch, project tree of the project's roots, editor tabs,
   definitions and usages in its results panel, palette results opening in it.
-- Built-in agent: Anthropic and OpenAI-compatible providers, one configured
-  agent, API key in the OS credential store.
+- Built-in agent: provider presets with a model picker, known models
+  recognized on any endpoint, one active provider, API keys in the OS
+  credential store.
 - Settings screen for projects, code roots, the agent and shortcuts.
 
 Out of scope (after MVP):
@@ -500,9 +550,46 @@ Only what is critical to the product.
   (arm64 + amd64) DMG for macOS. Builds are not code-signed yet, so Windows
   SmartScreen and macOS Gatekeeper warn on first launch.
 - **Agents:**
-  - The built-in agent is Docent's own tool-calling loop over provider APIs
-    (Anthropic Messages API, OpenAI-compatible Chat Completions), calling core
-    search tools directly.
+  - The built-in agent is Docent's own tool-calling loop over provider APIs,
+    calling core search tools directly. It speaks three of them: the
+    Anthropic Messages API (Anthropic), the OpenAI Responses API (OpenAI:
+    its current models call tools with reasoning on, and share reasoning
+    summaries, only there) and Chat Completions (every other provider). The
+    vendors that also offer an Anthropic-compatible endpoint are spoken to
+    over Chat Completions, so one client covers them and the custom
+    endpoints alike.
+  - **Model profiles.** What differs between models on Chat Completions is
+    data, not code: how reasoning is switched on and at what effort, which
+    field it streams in (`reasoning_content`, `reasoning`,
+    `reasoning_details`, content chunks, `<think>` tags) and that it is sent
+    back in the same field, which `tool_choice` values are accepted, and
+    which sampling parameters must not be sent. A profile matches model ids
+    by family (`glm-5*`, `kimi-k3*`, `deepseek-v4*`), ignoring an
+    aggregator's namespace (`z-ai/`, `accounts/fireworks/models/`), so a new
+    version of a known family works without a release. An unknown model gets
+    the generic profile: reasoning sent back as received, dropped and the
+    request retried only if the server rejects it.
+  - Reasoning is sent back by default: several providers reject a tool loop
+    without it (DeepSeek) or lose quality (Kimi, Z.ai, MiniMax), and
+    signatures must survive (Anthropic, Gemini). Provider-specific fields of
+    an assistant message are returned as received.
+  - The last step of a run asks for an answer by sending no tools rather
+    than `tool_choice: "none"`, which Z.ai and Ollama do not accept.
+  - **Catalog.** Providers (endpoints, regions, plans) and models (name,
+    context, output limit, reasoning options, tool support) are bundled,
+    generated from models.dev (MIT, attributed) for the preset providers
+    and trimmed, then overlaid with Docent's own data: the recommended model
+    per provider and the profiles. It is regenerated for each release; the
+    live model list covers what came out in between. Docent does not
+    download the catalog at runtime.
+  - **Live model lists.** `GET /models` on the provider (OpenRouter's is
+    public; the others need the key), fetched when the picker opens and kept
+    until restart. Local servers are asked through their own APIs for
+    context length and capabilities (Ollama `/api/tags` and `/api/show`,
+    LM Studio `/api/v1/models`). Whatever the listing carries (context,
+    reasoning, display name) is preferred to the catalog.
+  - Plans that need a sign-in rather than a key (an OAuth subscription such
+    as Kimi Code) are not supported; key-based plans (Z.ai Coding Plan) are.
   - External agents are connected over ACP (Agent Client Protocol); Docent acts
     as the ACP client and exposes its search tools to the agent over MCP.
     Write and command execution requests from external agents are denied.
@@ -649,3 +736,27 @@ Decisions on open questions, with date and a short rationale.
   every file every few seconds is not lightweight), indexing only while
   Docent is visible (stale on summon), re-searching results after a change
   (a moving list under the cursor).
+- **2026-11-09 — Provider presets, a model picker, known models anywhere.**
+  "OpenAI-compatible" with a blank model field asked the user to know an
+  endpoint and a model id, and treated every model alike, though open-weight
+  models differ in how reasoning is switched on and sent back. Presets cover
+  the vendors and hosts people actually use, with every one we know of
+  rather than a short list, since each costs a catalog entry. The picker
+  combines the provider's live model list (what the key can use, current)
+  with Docent's catalog (names, context, reasoning, the recommended
+  default). Models are recognized by id rather than by provider, because
+  the same open-weight model is served by its vendor, aggregators, local
+  servers and company proxies. Each provider keeps its own settings so that
+  trying another one costs nothing. Considered: a catalog only (stale
+  between releases), the live list only (bare ids, nothing before a key),
+  recognizing only endpoints (a known model behind a proxy would lose its
+  settings).
+- **2026-11-09 — Reasoning effort: a choice, defaulting to Docent's.**
+  Providers default some models to maximum effort (GLM, Kimi K3), which
+  makes a search slow and costly, so Docent's profile sets an effort suited
+  to search. A fixed effort cannot suit everyone: a hard question about
+  unfamiliar code is worth more thinking, a quick lookup less. Three levels
+  rather than each provider's own scale keep the choice the same
+  everywhere; the profile maps them to the model's values. Considered: the
+  profile's effort only (no way to trade speed for depth) and the provider's
+  default (maximum on some models).
