@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -11,7 +12,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 )
 
-const defaultAnthropicModel = "claude-opus-5-5"
+const anthropicBaseURL = "https://api.anthropic.com"
 
 // fallbackModels accept server-side refusal fallbacks ("fallbacks": "default").
 var fallbackModels = []string{"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
@@ -19,15 +20,11 @@ var fallbackModels = []string{"claude-fable-5-1", "claude-opus-5-5", "claude-opu
 // askAnthropic runs the agent over the Anthropic Messages API, streaming
 // answer text as it is generated.
 func askAnthropic(ctx context.Context, cfg Config, thread []Turn, question string, emit func(Event)) error {
-	opts := []option.RequestOption{option.WithAPIKey(cfg.APIKey)}
-	if cfg.BaseURL != "" {
-		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
-	}
-	client := anthropic.NewClient(opts...)
-
+	client := anthropic.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL))
 	model := cfg.Model
-	if model == "" {
-		model = defaultAnthropicModel
+	effort := anthropic.BetaOutputConfigEffort(cfg.Effort)
+	if effort == "" {
+		effort = anthropic.BetaOutputConfigEffortMedium
 	}
 	params := anthropic.BetaMessageNewParams{
 		Model:     model,
@@ -35,7 +32,7 @@ func askAnthropic(ctx context.Context, cfg Config, thread []Turn, question strin
 		System:    []anthropic.BetaTextBlockParam{{Text: systemPrompt}},
 		Tools:     anthropicTools(),
 		OutputConfig: anthropic.BetaOutputConfigParam{
-			Effort: anthropic.BetaOutputConfigEffortMedium,
+			Effort: effort,
 		},
 		// Summarized reasoning is shown live, so a search never looks stuck.
 		Thinking: anthropic.BetaThinkingConfigParamUnion{OfAdaptive: &anthropic.BetaThinkingConfigAdaptiveParam{
@@ -53,7 +50,7 @@ func askAnthropic(ctx context.Context, cfg Config, thread []Turn, question strin
 	params.Messages = append(params.Messages, anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(question)))
 	// A refused request is re-served by a fallback model in the same call.
 	// Only on the first-party API: proxies may not accept the field.
-	if cfg.BaseURL == "" && slices.Contains(fallbackModels, model) {
+	if strings.TrimRight(cfg.BaseURL, "/") == anthropicBaseURL && slices.Contains(fallbackModels, model) {
 		params.Betas = []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01}
 		params.Fallbacks = anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()}
 	}
@@ -61,7 +58,7 @@ func askAnthropic(ctx context.Context, cfg Config, thread []Turn, question strin
 	for step := 0; ; step++ {
 		if step == maxSteps {
 			params.Messages = append(params.Messages, anthropic.NewBetaUserMessage(
-				anthropic.NewBetaTextBlock("Stop searching now and answer with what you have found."),
+				anthropic.NewBetaTextBlock(finalNudge),
 			))
 			params.Tools = nil
 		}

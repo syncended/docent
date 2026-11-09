@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FolderPlus, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import * as api from "./api";
+import { AgentSettings, type AgentDraft } from "./AgentSettings";
 import { canonical, capturing, fromEvent, label, matches, type Shortcuts } from "./keys";
 
 // RootDraft keeps the include list as typed, so separators survive editing.
@@ -50,11 +51,6 @@ const screens: { id: api.Palette["screen"]; label: string }[] = [
   { id: "primary", label: "Primary screen" },
 ];
 
-const providers: { id: api.Agent["provider"]; label: string; model: string; baseUrl: string }[] = [
-  { id: "anthropic", label: "Anthropic", model: "claude-opus-5-5", baseUrl: "https://api.anthropic.com" },
-  { id: "openai", label: "OpenAI-compatible", model: "model name", baseUrl: "https://api.openai.com/v1" },
-];
-
 // section, if given, is the tab to open at; otherwise the last one used.
 export function Settings(props: { section?: Section; onClose: () => void; onSaved: (message: string) => void }) {
   const [loaded, setLoaded] = useState<api.Settings | null>(null);
@@ -64,19 +60,19 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
   lastSection = section;
   const [projects, setProjects] = useState<ProjectDraft[]>([]);
   const [activeKey, setActiveKey] = useState(0);
-  const [agent, setAgent] = useState<api.Agent>({ provider: "anthropic", model: "", baseUrl: "" });
+  const [agent, setAgent] = useState<AgentDraft>({ agent: { provider: "anthropic", providers: {} }, keys: {}, clearKeys: new Set() });
+  const [catalog, setCatalog] = useState<{ providers: api.Provider[]; levels: api.Level[]; defaultLevel: api.Level } | null>(null);
   const [screen, setScreen] = useState<api.Palette["screen"]>("focus");
   const [shortcuts, setShortcuts] = useState<Shortcuts>({});
   // recording is the command whose binding the next key press sets.
   const [recording, setRecording] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState("");
-  const [clearKey, setClearKey] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.getStatus().then((s) => setIndexed(s.roots), () => {});
+    api.getProviders().then(setCatalog, (e) => setError(e.message));
     api.getSettings().then(
       (s) => {
         setLoaded(s);
@@ -84,7 +80,7 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
         const drafts = [...s.projects].sort((a, b) => Number(b.name === s.active) - Number(a.name === s.active)).map(draft);
         setProjects(drafts);
         setActiveKey(drafts[0]?.key ?? 0);
-        setAgent({ ...s.agent, provider: s.agent.provider || "anthropic" });
+        setAgent({ agent: { provider: s.agent.provider || "anthropic", providers: s.agent.providers ?? {} }, keys: {}, clearKeys: new Set() });
         setScreen(s.palette?.screen || "focus");
         setShortcuts(s.shortcuts);
       },
@@ -127,9 +123,6 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
     setShortcuts({ ...shortcuts, [id]: binding });
     setRecording(null);
   };
-
-  const provider = providers.find((p) => p.id === agent.provider) ?? providers[0];
-  const keyStored = !!loaded?.hasKey && loaded.agent.provider === agent.provider;
 
   const update = (key: number, f: (p: ProjectDraft) => ProjectDraft) => setProjects((ps) => ps.map((p) => (p.key === key ? f(p) : p)));
 
@@ -183,11 +176,11 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
             exclude: r.exclude,
           })),
         })),
-        agent,
+        agent: agent.agent,
         palette: { screen },
         shortcuts,
-        apiKey,
-        clearKey: clearKey && !apiKey,
+        apiKeys: Object.fromEntries(Object.entries(agent.keys).filter(([, k]) => k.trim())),
+        clearKeys: [...agent.clearKeys],
       });
       props.onSaved("Settings saved · reindexing");
     } catch (e) {
@@ -330,38 +323,16 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
         </section>
 
         <section hidden={section !== "Agent"}>
-          <div className="pills">
-            {providers.map((p) => (
-              <button key={p.id} className={p.id === agent.provider ? "pill active" : "pill"} onClick={() => setAgent({ ...agent, provider: p.id })}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <label>
-            <span>Model</span>
-            <input className="field" placeholder={provider.model} value={agent.model} onChange={(e) => setAgent({ ...agent, model: e.target.value })} />
-          </label>
-          <label>
-            <span>Base URL</span>
-            <input className="field" placeholder={provider.baseUrl} value={agent.baseUrl} onChange={(e) => setAgent({ ...agent, baseUrl: e.target.value })} />
-          </label>
-          <label>
-            <span>API key</span>
-            <input
-              className="field"
-              type="password"
-              autoComplete="off"
-              placeholder={keyStored && !clearKey ? "Stored in the system credential store · paste to replace" : "Paste API key"}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+          {catalog && loaded && (
+            <AgentSettings
+              providers={catalog.providers}
+              levels={catalog.levels}
+              defaultLevel={catalog.defaultLevel}
+              stored={loaded.keys ?? []}
+              draft={agent}
+              onChange={setAgent}
             />
-            {keyStored && !apiKey && (
-              <button className="link" onClick={() => setClearKey(!clearKey)}>
-                {clearKey ? "Keep key" : "Remove key"}
-              </button>
-            )}
-          </label>
-          {clearKey && <p className="hint">The stored key will be removed on save.</p>}
+          )}
         </section>
       </div>
       <footer className="settings-footer">

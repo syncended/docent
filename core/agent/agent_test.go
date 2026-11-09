@@ -42,7 +42,7 @@ func setupIndex(t *testing.T) {
 	}
 }
 
-func TestAskOpenAI(t *testing.T) {
+func TestAskChat(t *testing.T) {
 	setupIndex(t)
 	root := code.Roots()[0].ID
 
@@ -92,23 +92,23 @@ func TestAskOpenAI(t *testing.T) {
 
 	var events []Event
 	thread := []Turn{{Question: "what is an order?", Answer: "A struct."}}
-	err := Ask(context.Background(), Config{Provider: "openai", Model: "test-model", BaseURL: server.URL + "/v1", APIKey: "test-key"},
+	err := Ask(context.Background(), Config{API: "chat", Model: "test-model", BaseURL: server.URL + "/v1", APIKey: "test-key"},
 		thread, "where is the order status?", func(e Event) { events = append(events, e) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := kinds(events); got != "turn call step turn text" {
+	if got := kinds(events); got != "turn thinking call step turn text" {
 		t.Fatalf("events = %s", got)
 	}
-	if step := events[2]; step.Tool != "search_types" || step.Input != "OrdSt" || len(step.Hits) != 1 || step.Hits[0].Title != "OrderStatus" {
+	if step := events[3]; step.Tool != "search_types" || step.Input != "OrdSt" || len(step.Hits) != 1 || step.Hits[0].Title != "OrderStatus" {
 		t.Errorf("step = %+v", step)
 	}
-	if text := events[4]; !strings.Contains(text.Text, "order.go:3") {
+	if text := events[5]; !strings.Contains(text.Text, "order.go:3") {
 		t.Errorf("text = %+v", text)
 	}
 }
 
-func TestAskOpenAIStreaming(t *testing.T) {
+func TestAskChatStreaming(t *testing.T) {
 	setupIndex(t)
 	turn := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +148,7 @@ func TestAskOpenAIStreaming(t *testing.T) {
 	defer server.Close()
 
 	var events []Event
-	err := Ask(context.Background(), Config{Provider: "openai", Model: "m", BaseURL: server.URL, APIKey: "k"}, nil,
+	err := Ask(context.Background(), Config{API: "chat", Model: "m", BaseURL: server.URL, APIKey: "k"}, nil,
 		"q", func(e Event) { events = append(events, e) })
 	if err != nil {
 		t.Fatal(err)
@@ -187,8 +187,157 @@ func TestRunToolValidates(t *testing.T) {
 	}
 }
 
-func TestAskWithoutKey(t *testing.T) {
-	if err := Ask(context.Background(), Config{Provider: "openai"}, nil, "q", func(Event) {}); err != ErrNoKey {
-		t.Errorf("err = %v", err)
+func TestChatEffortAndRetry(t *testing.T) {
+	setupIndex(t)
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		bodies = append(bodies, req)
+		if _, ok := req["reasoning"]; ok {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"reasoning.effort: unsupported value"}}`)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]any{"role": "assistant", "content": "ok"}}}})
+	}))
+	defer server.Close()
+
+	cfg := Config{API: "chat", Model: "m", BaseURL: server.URL, Effort: "high", EffortParam: "reasoning.effort", Body: map[string]any{"reasoning_split": true}}
+	if err := Ask(context.Background(), cfg, nil, "q", func(Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("%d requests, want a retry", len(bodies))
+	}
+	if r, _ := bodies[0]["reasoning"].(map[string]any); r["effort"] != "high" || bodies[0]["reasoning_split"] != true {
+		t.Errorf("first request = %v", bodies[0])
+	}
+	if _, ok := bodies[1]["reasoning"]; ok || bodies[1]["reasoning_split"] != true {
+		t.Errorf("retry = %v, want the effort dropped", bodies[1])
+	}
+	if _, ok := bodies[0]["tool_choice"]; ok {
+		t.Error("tool_choice is sent")
+	}
+}
+
+func TestChatContentChunksAndDetails(t *testing.T) {
+	setupIndex(t)
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []map[string]any `json:"messages"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		turn++
+		var chunks []string
+		switch turn {
+		case 1:
+			chunks = []string{
+				`{"choices":[{"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"Hmm."}]}]}}]}`,
+				`{"choices":[{"delta":{"reasoning":"Sig","reasoning_details":[{"type":"reasoning.text","index":0,"text":"Sig"}]}}]}`,
+				`{"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"text":"ned","signature":"s1"}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"search_types","arguments":"{\"query\":\"OrdSt\"}"},"extra_content":{"google":{"thought_signature":"t1"}}}]}}]}`,
+			}
+		default:
+			prev := req.Messages[len(req.Messages)-2]
+			content, _ := prev["content"].([]any)
+			details, _ := prev["reasoning_details"].([]any)
+			calls, _ := prev["tool_calls"].([]any)
+			if len(content) != 1 || content[0].(map[string]any)["type"] != "thinking" {
+				t.Errorf("content chunks not passed back: %v", prev["content"])
+			}
+			if len(details) != 1 || details[0].(map[string]any)["text"] != "Signed" || details[0].(map[string]any)["signature"] != "s1" {
+				t.Errorf("reasoning details not merged: %v", prev["reasoning_details"])
+			}
+			if _, ok := prev["reasoning"]; ok {
+				t.Errorf("reasoning sent besides its details: %v", prev)
+			}
+			if len(calls) != 1 || calls[0].(map[string]any)["extra_content"] == nil {
+				t.Errorf("tool call extra content lost: %v", calls)
+			}
+			chunks = []string{`{"choices":[{"delta":{"content":[{"type":"text","text":"Done."}]}}]}`}
+		}
+		for _, c := range chunks {
+			fmt.Fprintf(w, "data: %s\n\n", c)
+		}
+	}))
+	defer server.Close()
+
+	var events []Event
+	if err := Ask(context.Background(), Config{API: "chat", Model: "m", BaseURL: server.URL}, nil, "q", func(e Event) { events = append(events, e) }); err != nil {
+		t.Fatal(err)
+	}
+	if got := kinds(events); got != "turn thinking thinking thinking call step turn text" {
+		t.Errorf("events = %s", got)
+	}
+}
+
+func TestAskResponses(t *testing.T) {
+	setupIndex(t)
+	root := code.Roots()[0].ID
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" || r.Header.Get("Authorization") != "Bearer k" {
+			t.Errorf("unexpected request %s", r.URL.Path)
+		}
+		var req struct {
+			Model        string           `json:"model"`
+			Instructions string           `json:"instructions"`
+			Input        []map[string]any `json:"input"`
+			Tools        []map[string]any `json:"tools"`
+			Store        bool             `json:"store"`
+			Reasoning    map[string]any   `json:"reasoning"`
+			Include      []string         `json:"include"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		turn++
+		if turn == 1 && req.Reasoning["summary"] != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"Your organization must be verified to generate reasoning summaries."}}`)
+			return
+		}
+		if req.Model != "gpt" || req.Instructions == "" || req.Store || req.Reasoning["effort"] != "medium" || len(req.Include) != 1 {
+			t.Errorf("request = %+v", req)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		var events []string
+		switch turn {
+		case 2:
+			if len(req.Tools) != len(tools) || req.Tools[0]["name"] != "search_types" {
+				t.Errorf("tools = %v", req.Tools)
+			}
+			events = []string{
+				`{"type":"response.created"}`,
+				`{"type":"response.completed","response":{"output":[` +
+					`{"type":"reasoning","id":"rs_1","encrypted_content":"enc","summary":[]},` +
+					`{"type":"function_call","id":"fc_1","call_id":"call_1","name":"search_types","arguments":"{\"query\":\"OrdSt\"}"}]}}`,
+			}
+		default:
+			n := len(req.Input)
+			if req.Input[n-3]["encrypted_content"] != "enc" || req.Input[n-2]["call_id"] != "call_1" ||
+				req.Input[n-1]["type"] != "function_call_output" || !strings.Contains(req.Input[n-1]["output"].(string), root+"/order.go:3") {
+				t.Errorf("input = %v", req.Input)
+			}
+			events = []string{
+				`{"type":"response.output_text.delta","delta":"Found "}`,
+				`{"type":"response.output_text.delta","delta":"it."}`,
+				`{"type":"response.completed","response":{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Found it."}]}]}}`,
+			}
+		}
+		for _, e := range events {
+			fmt.Fprintf(w, "event: x\ndata: %s\n\n", e)
+		}
+	}))
+	defer server.Close()
+
+	var events []Event
+	cfg := Config{API: "responses", Model: "gpt", BaseURL: server.URL + "/v1", APIKey: "k", Effort: "medium"}
+	if err := Ask(context.Background(), cfg, nil, "q", func(e Event) { events = append(events, e) }); err != nil {
+		t.Fatal(err)
+	}
+	if got := kinds(events); got != "turn call step turn text text" {
+		t.Errorf("events = %s", got)
 	}
 }

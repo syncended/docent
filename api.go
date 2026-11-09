@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,14 +10,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/syncended/docent/core/agent"
 	"github.com/syncended/docent/core/code"
 	"github.com/syncended/docent/core/config"
+	"github.com/syncended/docent/core/provider"
 	"github.com/syncended/docent/core/secrets"
 	"github.com/syncended/docent/core/syntax"
 )
@@ -50,6 +54,9 @@ func apiMiddleware(next http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/highlight", handleHighlight)
 	mux.HandleFunc("POST /api/agent/ask", handleAgentAsk)
 	mux.HandleFunc("POST /api/agent/stop", handleAgentStop)
+	mux.HandleFunc("GET /api/providers", handleProviders)
+	mux.HandleFunc("GET /api/providers/match", handleProviderMatch)
+	mux.HandleFunc("POST /api/agent/models", handleAgentModels)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			mux.ServeHTTP(w, r)
@@ -251,10 +258,12 @@ type settings struct {
 	// with their defaults (shortcuts.go).
 	Shortcuts map[string]string `json:"shortcuts"`
 	Commands  []command         `json:"commands"`
-	HasKey    bool              `json:"hasKey"`
-	// APIKey, if not empty, replaces the stored key; ClearKey removes it.
-	APIKey   string `json:"apiKey,omitempty"`
-	ClearKey bool   `json:"clearKey,omitempty"`
+	// Keys lists the providers with a stored key.
+	Keys []string `json:"keys"`
+	// APIKeys replace the stored keys of the providers named; ClearKeys
+	// removes theirs.
+	APIKeys   map[string]string `json:"apiKeys,omitempty"`
+	ClearKeys []string          `json:"clearKeys,omitempty"`
 }
 
 func handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +276,19 @@ func handleGetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func currentSettings(cfg *config.Config) settings {
-	key, _ := secrets.APIKey(cfg.Agent.Provider)
+	keys := []string{}
+	for _, p := range provider.All() {
+		if key, _ := secrets.APIKey(p.ID); key != "" {
+			keys = append(keys, p.ID)
+		}
+	}
+	agentCfg := cfg.Agent
+	if agentCfg.Provider == "" {
+		agentCfg.Provider = defaultProvider
+	}
+	if agentCfg.Providers == nil {
+		agentCfg.Providers = map[string]config.ProviderSettings{}
+	}
 	projects := make([]config.Project, len(cfg.Projects))
 	for i, p := range cfg.Projects {
 		if p.Roots == nil {
@@ -277,7 +298,7 @@ func currentSettings(cfg *config.Config) settings {
 	}
 	return settings{
 		ConfigPath: configPath, Active: cfg.Active, Projects: projects,
-		Agent: cfg.Agent, Palette: cfg.Palette, Shortcuts: resolveShortcuts(cfg), Commands: commands, HasKey: key != "",
+		Agent: agentCfg, Palette: cfg.Palette, Shortcuts: resolveShortcuts(cfg), Commands: commands, Keys: keys,
 	}
 }
 
@@ -320,15 +341,25 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errString("save or discard the unsaved changes in the overview window first"))
 		return
 	}
-	if provider := cfg.Agent.Provider; provider != "" {
-		var err error
-		switch {
-		case in.APIKey != "":
-			err = secrets.SetAPIKey(provider, strings.TrimSpace(in.APIKey))
-		case in.ClearKey:
-			err = secrets.DeleteAPIKey(provider)
+	if _, ok := provider.Find(cfg.Agent.Provider); !ok {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("unknown provider %q", cfg.Agent.Provider))
+		return
+	}
+	cfg.Agent.Providers = cleanProviderSettings(in.Agent.Providers)
+	for id, key := range in.APIKeys {
+		if _, ok := provider.Find(id); !ok || strings.TrimSpace(key) == "" {
+			continue
 		}
-		if err != nil {
+		if err := secrets.SetAPIKey(id, strings.TrimSpace(key)); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("credential store: %w", err))
+			return
+		}
+	}
+	for _, id := range in.ClearKeys {
+		if _, ok := provider.Find(id); !ok || in.APIKeys[id] != "" {
+			continue
+		}
+		if err := secrets.DeleteAPIKey(id); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Errorf("credential store: %w", err))
 			return
 		}
@@ -350,6 +381,90 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	// Both windows reload their shortcuts.
 	app.Event.Emit("settings:saved", "")
 	writeJSON(w, currentSettings(cfg))
+}
+
+// cleanProviderSettings keeps the settings of known providers that say
+// something, trimmed; an effort that is not one of the levels is dropped.
+func cleanProviderSettings(in map[string]config.ProviderSettings) map[string]config.ProviderSettings {
+	out := map[string]config.ProviderSettings{}
+	for id, s := range in {
+		if _, ok := provider.Find(id); !ok {
+			continue
+		}
+		s.Model, s.BaseURL = strings.TrimSpace(s.Model), strings.TrimSpace(s.BaseURL)
+		if !slices.Contains(provider.Levels, s.Effort) {
+			s.Effort = ""
+		}
+		if s != (config.ProviderSettings{}) {
+			out[id] = s
+		}
+	}
+	return out
+}
+
+func handleProviders(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{
+		"providers":    provider.All(),
+		"levels":       provider.Levels,
+		"defaultLevel": provider.DefaultLevel,
+	})
+}
+
+// handleProviderMatch names the preset a base URL typed into Custom belongs
+// to, if any (DESIGN.md, Providers and models).
+func handleProviderMatch(w http.ResponseWriter, r *http.Request) {
+	p, e, ok := provider.ForURL(r.URL.Query().Get("url"))
+	if !ok || p.Kind == provider.Custom {
+		writeJSON(w, map[string]string{})
+		return
+	}
+	writeJSON(w, map[string]string{"provider": p.ID, "endpoint": e.ID})
+}
+
+// handleAgentModels lists the models for the picker: the provider's live
+// list when it can be reached, Docent's catalog otherwise. The key typed
+// in Settings, not saved yet, is used before the stored one.
+func handleAgentModels(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Provider string `json:"provider"`
+		Endpoint string `json:"endpoint"`
+		BaseURL  string `json:"baseUrl"`
+		APIKey   string `json:"apiKey"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p, ok := provider.Find(in.Provider)
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("unknown provider %q", in.Provider))
+		return
+	}
+	e := provider.EndpointOf(p, in.Endpoint)
+	base := cmp.Or(strings.TrimSpace(in.BaseURL), e.URL)
+	key := strings.TrimSpace(in.APIKey)
+	if key == "" {
+		key, _ = secrets.APIKey(p.ID)
+	}
+	type result struct {
+		Models []provider.Choice `json:"models"`
+		// Live reports a list from the provider rather than the catalog.
+		Live  bool   `json:"live"`
+		Error string `json:"error,omitempty"`
+	}
+	catalog := provider.Order(p, provider.Catalog(e))
+	if base == "" || key == "" && e.Key == provider.KeyRequired {
+		writeJSON(w, result{Models: catalog})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	models, err := provider.ListCached(ctx, p, e, base, key)
+	if err != nil {
+		writeJSON(w, result{Models: catalog, Error: err.Error()})
+		return
+	}
+	writeJSON(w, result{Models: provider.Order(p, models), Live: true})
 }
 
 // validRoots trims and checks the roots of a project from the settings screen.

@@ -90,6 +90,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := migrateAgent(cfg); err != nil {
+		log.Printf("moving agent settings to per-provider settings: %v", err)
+	}
 	paletteScreen.Store(cfg.Palette.Screen)
 	current.Store(cfg)
 	if cacheDir, err = code.DefaultCacheDir(); err != nil {

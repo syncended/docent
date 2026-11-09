@@ -277,9 +277,9 @@ every tab, so a change on one tab is not lost by looking at another.
   Each root of the active project shows how many files and symbols its
   index holds and when it was indexed, so a root limited to the wrong
   subdirectories is easy to spot.
-- **Agent:** the providers as a list grouped by kind, the active one first
-  and those with a key marked; choosing one shows its region or plan, base
-  URL, API key and the model picker (see
+- **Agent:** the providers as a list grouped by kind, those with a key
+  marked; choosing one shows its region or plan, base URL, API key, the
+  model picker and the reasoning effort (see
   [Providers and models](#providers-and-models)). Saving makes the chosen
   provider active. A key is written to the OS credential store and never
   shown again; it can be replaced or removed.

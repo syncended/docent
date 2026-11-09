@@ -136,11 +136,61 @@ export interface Project {
   roots: Root[];
 }
 
-export interface Agent {
-  provider: "" | "anthropic" | "openai";
+// ProviderSettings is what the user chose for one provider; empty fields
+// mean the provider's defaults.
+export interface ProviderSettings {
   model: string;
+  effort: "" | Level;
+  endpoint: string;
   baseUrl: string;
 }
+
+export interface Agent {
+  // provider is the id of the active provider.
+  provider: string;
+  providers: Record<string, ProviderSettings>;
+}
+
+export type Level = "low" | "medium" | "high";
+
+export interface Endpoint {
+  id: string;
+  label: string;
+  url: string;
+  key: "required" | "optional" | "none";
+}
+
+// Provider is a preset from Docent's catalog (DESIGN.md, Providers and models).
+export interface Provider {
+  id: string;
+  name: string;
+  kind: "vendor" | "host" | "local" | "custom";
+  api: "anthropic" | "responses" | "chat";
+  endpoints: Endpoint[];
+  recommended?: string;
+}
+
+export interface ModelChoice {
+  id: string;
+  name?: string;
+  context?: number;
+  output?: number;
+  reasoning?: boolean;
+  efforts?: string[];
+  known: boolean;
+  tunable: boolean;
+}
+
+export const getProviders = () => request<{ providers: Provider[]; levels: Level[]; defaultLevel: Level }>("GET", "/api/providers", {});
+
+// matchProvider names the preset a base URL belongs to; {} if none.
+export const matchProvider = (url: string) => request<{ provider?: string; endpoint?: string }>("GET", "/api/providers/match", { url });
+
+// listModels lists the picker's models: the provider's own list when it can
+// be reached (live), Docent's catalog otherwise. apiKey is a key typed but
+// not saved yet; "" uses the stored one.
+export const listModels = (q: { provider: string; endpoint: string; baseUrl: string; apiKey: string }, signal?: AbortSignal) =>
+  request<{ models: ModelChoice[] | null; live: boolean; error?: string }>("POST", "/api/agent/models", {}, JSON.stringify(q), signal);
 
 export interface Palette {
   screen: "" | "focus" | "mouse" | "primary";
@@ -154,9 +204,10 @@ export interface Settings {
   palette: Palette;
   shortcuts: Shortcuts;
   commands: Command[];
-  hasKey: boolean;
-  apiKey?: string;
-  clearKey?: boolean;
+  // keys lists the providers with a stored key.
+  keys: string[];
+  apiKeys?: Record<string, string>;
+  clearKeys?: string[];
 }
 
 export const getSettings = () => request<Settings>("GET", "/api/settings", {});

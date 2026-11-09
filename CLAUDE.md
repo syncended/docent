@@ -40,6 +40,9 @@ Applies to Go and frontend code alike.
   - `symbols` — tree-sitter declaration extraction, per-language queries
   - `fuzzy` — IDE-style fuzzy name matching
   - `code` — index (zoekt + symbols) and search; the core's public API
+  - `provider` — model provider presets, the bundled model catalog
+    (`go generate` regenerates it from models.dev) and live model lists
+  - `agent` — the built-in agent's tool-calling loop over provider APIs
 - `cmd/docentctl` — development CLI over `core/code`.
 - Tests: `go test ./...`.
 

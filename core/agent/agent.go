@@ -28,13 +28,24 @@ type Event struct {
 	Hits  []code.Hit `json:"hits,omitempty"`
 }
 
-// Config selects the provider and model.
+// Config says where and how to reach the model.
 type Config struct {
-	// Provider is "anthropic" or "openai" (any OpenAI-compatible API).
-	Provider string
-	Model    string
-	BaseURL  string
-	APIKey   string
+	// API is the protocol: "anthropic" (Messages API), "responses" (OpenAI
+	// Responses API) or "chat" (OpenAI-compatible Chat Completions).
+	API string
+	// BaseURL is the endpoint's address, without the API's own path.
+	BaseURL string
+	Model   string
+	// APIKey may be empty for a server that needs none.
+	APIKey string
+	// Effort is the reasoning effort as the model spells it; "" sends none
+	// and leaves the provider's default.
+	Effort string
+	// EffortParam is where a Chat Completions request carries Effort:
+	// "reasoning_effort", or a dotted path such as "reasoning.effort".
+	EffortParam string
+	// Body holds fields every Chat Completions request carries.
+	Body map[string]any
 }
 
 // Turn is an earlier question of a thread and the answer it got.
@@ -53,18 +64,21 @@ var ErrNoKey = errors.New("no API key configured: open Settings (⌘,) and paste
 // through emit. thread holds the earlier turns the question follows up on.
 // It returns when the answer is complete or ctx is cancelled.
 func Ask(ctx context.Context, cfg Config, thread []Turn, question string, emit func(Event)) error {
-	if cfg.APIKey == "" {
-		return ErrNoKey
-	}
-	switch cfg.Provider {
+	switch cfg.API {
 	case "anthropic":
 		return askAnthropic(ctx, cfg, thread, question, emit)
-	case "openai":
-		return askOpenAI(ctx, cfg, thread, question, emit)
+	case "responses":
+		return askResponses(ctx, cfg, thread, question, emit)
+	case "chat":
+		return askChat(ctx, cfg, thread, question, emit)
 	default:
-		return fmt.Errorf("unknown agent provider %q", cfg.Provider)
+		return fmt.Errorf("unknown agent API %q", cfg.API)
 	}
 }
+
+// finalNudge asks the model to answer when a run reaches maxSteps; the
+// request then carries no tools, so it cannot search further.
+const finalNudge = "Stop searching now and answer with what you have found."
 
 const systemPrompt = `You are the search agent of Docent, a read-only code browser. A developer asks where or how something is implemented in their local code; you find it and explain briefly.
 

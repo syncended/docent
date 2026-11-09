@@ -57,10 +57,26 @@ type Root struct {
 
 // Agent configures the built-in agent.
 type Agent struct {
-	// Provider is "anthropic" or "openai" (any OpenAI-compatible API).
+	// Provider is the id of the active provider preset (core/provider).
 	Provider string `toml:"provider,omitempty" json:"provider"`
-	Model    string `toml:"model,omitempty" json:"model"`
-	// BaseURL overrides the provider's default endpoint.
+	// Providers holds each provider's own settings, by provider id.
+	Providers map[string]ProviderSettings `toml:"providers,omitempty" json:"providers"`
+	// Model and BaseURL are the layout from before per-provider settings,
+	// when "openai" meant any OpenAI-compatible API; the shell moves them
+	// into Providers at startup.
+	Model   string `toml:"model,omitempty" json:"-"`
+	BaseURL string `toml:"base_url,omitempty" json:"-"`
+}
+
+// ProviderSettings is what the user chose for one provider.
+type ProviderSettings struct {
+	// Model is the model id; empty means the provider's recommended one.
+	Model string `toml:"model,omitempty" json:"model"`
+	// Effort is "low", "medium" or "high"; empty means Docent's default.
+	Effort string `toml:"effort,omitempty" json:"effort"`
+	// Endpoint is the id of the region or plan; empty means the default.
+	Endpoint string `toml:"endpoint,omitempty" json:"endpoint"`
+	// BaseURL overrides the endpoint's address, e.g. for a proxy.
 	BaseURL string `toml:"base_url,omitempty" json:"baseUrl"`
 }
 
