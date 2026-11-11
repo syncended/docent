@@ -396,7 +396,7 @@ screen.
 - **Tabs.** A file opens in a new tab, or switches to its tab if it is
   already open. `Ctrl+Tab` / `Ctrl+Shift+Tab` switch tabs; `Cmd+W` closes the
   active tab, and with unsaved edits the first press reminds to save, a
-  second one discards them. Clicking a tab's close button with unsaved edits
+  second one discards them. With no tabs open, `Cmd+W` closes the window. Clicking a tab's close button with unsaved edits
   works the same way. When the tabs do not fit, the row scrolls: the wheel
   over it scrolls sideways, and the active tab is always scrolled into view.
 - **Code** as in the viewer: syntax highlighting, go to line, find in file,
