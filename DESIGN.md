@@ -524,8 +524,12 @@ Only what is critical to the product.
 - **Single instance.** A second launch does not start another Docent; it
   brings the running one's overview window forward.
 - **File watching.** The directories of the indexed files are watched with
-  the platform's file system notifications (fsnotify); directories git
-  ignores are not watched, so `node_modules` and build output cost nothing.
+  the platform's file system notifications; changes in directories git
+  ignores do not count, so `node_modules` and build output cost nothing.
+  On macOS each root is one FSEvents stream over its tree: kqueue holds a
+  file descriptor for every file of a watched directory, and a large root
+  runs the process out of them, after which nothing opens — not the index,
+  not a file to show. Elsewhere fsnotify watches each directory.
   Events are coalesced: indexing of a root starts after a quiet period and
   a change during a run queues another. Summoning the palette also checks
   the roots for changes, as a safety net for events that were lost. A
