@@ -2,7 +2,6 @@ package code
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -11,20 +10,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
-
 	"github.com/syncended/docent/core/config"
 	"github.com/syncended/docent/core/source"
 )
 
-// The directories of the indexed files are watched with the platform's file
-// system notifications; Open and Reindex keep the watched directories in step
-// with the roots (DESIGN.md, Technical decisions: File watching).
+// The roots are watched with the platform's file system notifications
+// (DESIGN.md, Technical decisions: File watching). watched holds the
+// directories whose changes count: every directory holding an indexed file
+// and those above it up to the root. Open and Reindex keep it in step with
+// the roots; the platform's watches follow it (watch_*.go).
 
 var (
 	watchMu sync.Mutex
-	watcher *fsnotify.Watcher
-	// watched is the absolute path of every watched directory.
+	// watched is the absolute path of every watched directory; nil while
+	// no Watch runs.
 	watched map[string]bool
 )
 
@@ -37,28 +36,37 @@ type Change struct {
 	Paths []string `json:"paths"`
 }
 
-// watchBuffer is the per-directory event buffer on Windows, where a watch
-// costs its buffer: the default 64 KB over the thousands of directories of
-// a repository would not be lightweight. Overflows put the root in doubt.
-const watchBuffer = 4096
+// event is a change the platform reported at an absolute path.
+type event struct {
+	path string
+	// dir is set when the platform knows the path is a directory.
+	dir bool
+	// created and removed are set for a path created, and for one removed
+	// or renamed; a platform may report both for the same path.
+	created, removed bool
+	// lost is set when events were lost: anything in the root of path, or
+	// in every root when path is empty, may have changed.
+	lost bool
+}
 
 // Watch watches the roots' directories until ctx is done. Changes are
 // reported per root once quiet has passed without further changes, so that
 // a `git checkout` or an agent writing several files is one batch. Only one
 // Watch runs at a time.
 func Watch(ctx context.Context, quiet time.Duration, changed func(Change)) error {
-	w, err := fsnotify.NewBufferedWatcher(4096)
+	watchMu.Lock()
+	events, err := startEvents()
 	if err != nil {
+		watchMu.Unlock()
 		return err
 	}
-	watchMu.Lock()
-	watcher, watched = w, map[string]bool{}
+	watched = map[string]bool{}
 	watchMu.Unlock()
 	defer func() {
 		watchMu.Lock()
-		watcher, watched = nil, nil
+		watched = nil
+		stopEvents()
 		watchMu.Unlock()
-		w.Close()
 	}()
 	rewatch()
 
@@ -71,23 +79,17 @@ func Watch(ctx context.Context, quiet time.Duration, changed func(Change)) error
 		select {
 		case <-ctx.Done():
 			return nil
-		case ev, ok := <-w.Events:
+		case batch, ok := <-events:
 			if !ok {
 				return nil
 			}
-			if note(ev, pending) {
-				timer.Reset(quiet)
-			}
-		case err, ok := <-w.Errors:
-			if !ok {
-				return nil
-			}
-			if errors.Is(err, fsnotify.ErrEventOverflow) {
-				mu.RLock()
-				for _, r := range roots {
-					pending[r.id] = nil
+			noted := false
+			for _, ev := range batch {
+				if note(ev, pending) {
+					noted = true
 				}
-				mu.RUnlock()
+			}
+			if noted {
 				timer.Reset(quiet)
 			}
 		case <-timer.C:
@@ -106,40 +108,67 @@ func Watch(ctx context.Context, quiet time.Duration, changed func(Change)) error
 	}
 }
 
-// note records ev in pending and reports whether it concerned a root. A new
-// directory is watched from then on; a directory removed or renamed puts its
-// root in doubt, since the files below it moved with it.
-func note(ev fsnotify.Event, pending map[string]map[string]bool) bool {
-	r, rel, ok := rootOf(ev.Name)
+// note records ev in pending and reports whether it concerned a root. Only
+// paths in watched directories count. A new directory is watched from then
+// on; a watched directory gone puts its root in doubt, since the files
+// below it went with it.
+func note(ev event, pending map[string]map[string]bool) bool {
+	if ev.lost {
+		return doubt(ev.path, pending)
+	}
+	r, rel, ok := rootOf(ev.path)
 	if !ok {
+		return false
+	}
+	watchMu.Lock()
+	inWatched, dir := watched[filepath.Dir(ev.path)], watched[ev.path]
+	watchMu.Unlock()
+	if !inWatched {
 		return false
 	}
 	if _, doubt := pending[r.id]; doubt && pending[r.id] == nil {
 		return true
 	}
-	watchMu.Lock()
-	dir := watched[ev.Name]
-	watchMu.Unlock()
+	info, err := os.Lstat(ev.path)
+	exists := err == nil
 	switch {
-	case dir && ev.Has(fsnotify.Remove|fsnotify.Rename):
-		unwatch(ev.Name)
+	case dir && !exists:
+		unwatch(ev.path)
 		pending[r.id] = nil
 		return true
-	case ev.Has(fsnotify.Create):
-		if info, err := os.Lstat(ev.Name); err == nil && info.IsDir() {
-			if !source.Watchable(r.cfg, rel) {
-				return false
-			}
-			watchTree(r.cfg, ev.Name)
-			pending[r.id] = nil
-			return true
+	case exists && info.IsDir():
+		if dir || !(ev.created || ev.removed) || !source.Watchable(r.cfg, rel) {
+			return false
 		}
+		watchTree(r.cfg, ev.path)
+		pending[r.id] = nil
+		return true
+	case ev.dir:
+		return false
 	}
 	if pending[r.id] == nil {
 		pending[r.id] = map[string]bool{}
 	}
 	pending[r.id][rel] = true
 	return true
+}
+
+// doubt puts the root of abs in doubt, or every root when abs is empty.
+func doubt(abs string, pending map[string]map[string]bool) bool {
+	if abs != "" {
+		r, _, ok := rootOf(abs)
+		if !ok {
+			return false
+		}
+		pending[r.id] = nil
+		return true
+	}
+	mu.RLock()
+	defer mu.RUnlock()
+	for _, r := range roots {
+		pending[r.id] = nil
+	}
+	return len(roots) > 0
 }
 
 // rootOf finds the root an absolute path is in and the path relative to it,
@@ -168,15 +197,11 @@ func rootOf(abs string) (*root, string, bool) {
 // every directory holding an indexed file, and the directories above it up
 // to the root. Without a Watch running it does nothing.
 func rewatch() {
-	watchMu.Lock()
-	w := watcher
-	watchMu.Unlock()
-	if w == nil {
-		return
-	}
 	want := map[string]bool{}
+	var paths []string
 	mu.RLock()
 	for _, r := range roots {
+		paths = append(paths, r.cfg.Path)
 		want[r.cfg.Path] = true
 		for _, inc := range r.cfg.Include {
 			for d := filepath.ToSlash(filepath.Clean(inc)); d != "." && d != "/" && d != ""; d = path.Dir(d) {
@@ -196,20 +221,19 @@ func rewatch() {
 	mu.RUnlock()
 	watchMu.Lock()
 	defer watchMu.Unlock()
-	if watcher != w {
+	if watched == nil {
 		return
 	}
+	watchRoots(paths)
 	for dir := range watched {
 		if !want[dir] {
-			w.Remove(dir)
+			removeWatch(dir)
 			delete(watched, dir)
 		}
 	}
 	for dir := range want {
-		if !watched[dir] {
-			if w.AddWith(dir, fsnotify.WithBufferSize(watchBuffer)) == nil {
-				watched[dir] = true
-			}
+		if !watched[dir] && addWatch(dir) {
+			watched[dir] = true
 		}
 	}
 }
@@ -226,7 +250,7 @@ func watchTree(rc config.Root, dir string) {
 			return filepath.SkipDir
 		}
 		watchMu.Lock()
-		if watcher != nil && !watched[p] && watcher.AddWith(p, fsnotify.WithBufferSize(watchBuffer)) == nil {
+		if watched != nil && !watched[p] && addWatch(p) {
 			watched[p] = true
 		}
 		watchMu.Unlock()
@@ -237,13 +261,10 @@ func watchTree(rc config.Root, dir string) {
 func unwatch(dir string) {
 	watchMu.Lock()
 	defer watchMu.Unlock()
-	if watcher == nil {
-		return
-	}
 	prefix := dir + string(filepath.Separator)
 	for d := range watched {
 		if d == dir || strings.HasPrefix(d, prefix) {
-			watcher.Remove(d)
+			removeWatch(d)
 			delete(watched, d)
 		}
 	}
