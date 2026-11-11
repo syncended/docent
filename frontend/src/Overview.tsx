@@ -508,6 +508,7 @@ export function Overview() {
     }
     if (matches(sc.close, e)) {
       if (tab) closeTab(tab.id);
+      else requestClose();
       return true;
     }
     if (matches(sc.settings, e)) {
