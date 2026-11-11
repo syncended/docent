@@ -364,12 +364,12 @@ func targetScreen() *application.Screen {
 	ok := false
 	switch where {
 	case "primary":
-	case "mouse":
-		x, y, ok = mousePoint()
-	default:
+	case "focus":
 		if x, y, ok = focusedWindowPoint(); !ok {
 			x, y, ok = mousePoint()
 		}
+	default:
+		x, y, ok = mousePoint()
 	}
 	if ok {
 		if s := app.Screen.ScreenNearestDipPoint(application.Point{X: x, Y: y}); s != nil {

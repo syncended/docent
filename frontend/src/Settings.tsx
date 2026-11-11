@@ -46,8 +46,8 @@ const draft = (p: api.Project): ProjectDraft => ({
 });
 
 const screens: { id: api.Palette["screen"]; label: string }[] = [
-  { id: "focus", label: "Screen with the focused window" },
   { id: "mouse", label: "Screen with the pointer" },
+  { id: "focus", label: "Screen with the focused window" },
   { id: "primary", label: "Primary screen" },
 ];
 
@@ -62,7 +62,7 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
   const [activeKey, setActiveKey] = useState(0);
   const [agent, setAgent] = useState<AgentDraft>({ agent: { provider: "anthropic", providers: {} }, keys: {}, clearKeys: new Set() });
   const [catalog, setCatalog] = useState<{ providers: api.Provider[]; levels: api.Level[]; defaultLevel: api.Level } | null>(null);
-  const [screen, setScreen] = useState<api.Palette["screen"]>("focus");
+  const [screen, setScreen] = useState<api.Palette["screen"]>("mouse");
   const [shortcuts, setShortcuts] = useState<Shortcuts>({});
   // recording is the command whose binding the next key press sets.
   const [recording, setRecording] = useState<string | null>(null);
@@ -81,7 +81,7 @@ export function Settings(props: { section?: Section; onClose: () => void; onSave
         setProjects(drafts);
         setActiveKey(drafts[0]?.key ?? 0);
         setAgent({ agent: { provider: s.agent.provider || "anthropic", providers: s.agent.providers ?? {} }, keys: {}, clearKeys: new Set() });
-        setScreen(s.palette?.screen || "focus");
+        setScreen(s.palette?.screen || "mouse");
         setShortcuts(s.shortcuts);
       },
       (e) => setError(e.message),

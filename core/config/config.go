@@ -39,8 +39,8 @@ type Project struct {
 
 // Palette configures the search palette window.
 type Palette struct {
-	// Screen is where the palette opens: "focus" (the screen with the focused
-	// window, the default), "mouse" (the screen with the pointer) or "primary".
+	// Screen is where the palette opens: "mouse" (the screen with the pointer,
+	// the default), "focus" (the screen with the focused window) or "primary".
 	Screen string `toml:"screen,omitempty" json:"screen"`
 }
 
