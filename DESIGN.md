@@ -283,8 +283,8 @@ every tab, so a change on one tab is not lost by looking at another.
   [Providers and models](#providers-and-models)). Saving makes the chosen
   provider active. A key is written to the OS credential store and never
   shown again; it can be replaced or removed.
-- **Palette:** which screen it opens on: the one with the focused window
-  (default), the one with the pointer, or the primary screen.
+- **Palette:** which screen it opens on: the one with the pointer
+  (default), the one with the focused window, or the primary screen.
 - **Shortcuts:** every command with its binding: search everywhere (the
   hotkey), open in the overview window, project tree, close, settings, switch
   project, next and previous result, next and previous tab, save, go to
@@ -764,3 +764,9 @@ Decisions on open questions, with date and a short rationale.
   everywhere; the profile maps them to the model's values. Considered: the
   profile's effort only (no way to trade speed for depth) and the provider's
   default (maximum on some models).
+- **2026-11-11 — The palette opens on the screen with the pointer by
+  default.** The focused window is not reliably known on macOS: after a
+  click into a full-screen window the window list can still put another
+  window of the same app first, and the palette opened on the old screen.
+  The pointer is always where the user is looking after a click and needs
+  no guessing. The focused-window screen stays available as a setting.
