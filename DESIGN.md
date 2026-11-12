@@ -326,6 +326,9 @@ every tab, so a change on one tab is not lost by looking at another.
   `Cmd+1` shows the tree and moves focus to it, or hides it when it has focus;
   in the tree the arrow keys move and expand or collapse, `Enter` opens and
   `Esc` returns to the code. Can be hidden.
+  Names are never cut off: when deep folders or long names do not fit, the
+  tree scrolls sideways, and moving the selection scrolls its row into view
+  both ways. Folders with thousands of files open and scroll without delay.
 - **Speed search in the tree**, as in IntelliJ IDEA: typing while the tree
   has focus searches the names of visible files and folders. The query shows
   over the tree, matches are highlighted and the selection jumps to the
@@ -389,7 +392,8 @@ screen.
 - **Project tree** on the left: every code root of the active project as a
   top-level folder.
   Folders expand and collapse; choosing a file opens it in a tab. The tree
-  follows the active tab, expanded to its file. Keys as in the viewer's tree:
+  follows the active tab, expanded to its file. Scrolling and keys as in the
+  viewer's tree:
   `Cmd+1` shows the tree and focuses it, or hides it when it has focus; arrow
   keys move and expand or collapse, `Enter` opens, `Esc` returns to the code;
   typing searches visible names (speed search).
