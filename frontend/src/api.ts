@@ -83,8 +83,13 @@ export interface Progress {
   listed?: boolean;
 }
 
+const encoder = new TextEncoder();
+
 async function request<T>(method: string, path: string, params: Record<string, string>, body?: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${path}?${new URLSearchParams(params)}`, { method, body, signal });
+  // The body's byte length lets the backend wait for all of it: on macOS
+  // the webview can hand it over cut short (api.go, bodyLengthHeader).
+  const headers: Record<string, string> = body === undefined ? {} : { "X-Docent-Body-Length": String(encoder.encode(body).length) };
+  const res = await fetch(`${path}?${new URLSearchParams(params)}`, { method, body, headers, signal });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? res.statusText);
   return data as T;

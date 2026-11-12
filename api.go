@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -59,7 +60,14 @@ func apiMiddleware(next http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/agent/models", handleAgentModels)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			mux.ServeHTTP(w, r)
+			if n, err := strconv.ParseInt(r.Header.Get(bodyLengthHeader), 10, 64); err == nil && n >= 0 {
+				r.Body = &fullBody{ReadCloser: r.Body, left: n, deadline: time.Now().Add(bodyWait)}
+			}
+			rec := &errorRecorder{ResponseWriter: w}
+			mux.ServeHTTP(rec, r)
+			if rec.status >= 400 {
+				log.Printf("api: %s %s: %d %s", r.Method, r.URL.Path, rec.status, strings.TrimSpace(rec.body.String()))
+			}
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -556,6 +564,75 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
+
+// bodyLengthHeader carries the byte length of a request body from the
+// frontend. On macOS, Wails ends a body early when WebKit has not yet
+// delivered its next part (its request_darwin.go treats "no bytes available
+// yet" as the end), so a long file arrived cut short: highlighted only in
+// part, or saved truncated. The API reads on until it has this many bytes.
+const bodyLengthHeader = "X-Docent-Body-Length"
+
+// bodyWait is how long a request body may take to arrive in full.
+const bodyWait = 5 * time.Second
+
+// fullBody reads a request body of a known length, waiting through early
+// ends; a body still short at the deadline is an error, so a truncated file
+// is never written.
+type fullBody struct {
+	io.ReadCloser
+	left     int64
+	deadline time.Time
+}
+
+func (b *fullBody) Read(p []byte) (int, error) {
+	if b.left == 0 {
+		return 0, io.EOF
+	}
+	p = p[:min(int64(len(p)), b.left)]
+	for {
+		n, err := b.ReadCloser.Read(p)
+		b.left -= int64(n)
+		switch {
+		case n > 0:
+			return n, nil
+		case err != nil && !errors.Is(err, io.EOF):
+			return 0, err
+		case time.Now().After(b.deadline):
+			return 0, fmt.Errorf("request body: %w, %d bytes missing", io.ErrUnexpectedEOF, b.left)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// errorRecorder passes a response through, keeping its status and, for an
+// error, its body, so that failed API calls are logged: the frontend often
+// shrugs them off.
+type errorRecorder struct {
+	http.ResponseWriter
+	status int
+	body   strings.Builder
+}
+
+func (e *errorRecorder) WriteHeader(status int) {
+	e.status = status
+	e.ResponseWriter.WriteHeader(status)
+}
+
+func (e *errorRecorder) Write(b []byte) (int, error) {
+	if e.status == 0 {
+		e.status = http.StatusOK
+	}
+	if e.status >= 400 && e.body.Len() < 1024 {
+		e.body.Write(b)
+	}
+	return e.ResponseWriter.Write(b)
+}
+
+func (e *errorRecorder) Flush() {
+	if f, ok := e.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 type errString string
