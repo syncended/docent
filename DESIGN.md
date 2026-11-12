@@ -351,12 +351,13 @@ every tab, so a change on one tab is not lost by looking at another.
   back twice returns to line 120 of the first. A jump after going back
   drops the places ahead. The history belongs to the window and to the
   project: switching projects starts afresh.
-- `Esc` or `Cmd+W` closes the file and returns to the palette, like closing
-  a tab. With unsaved edits the first press reminds to save, a second one
-  discards them.
-- Hidden from the viewer by clicking elsewhere, Docent reopens in the viewer
-  at the same file and place, keeping unsaved edits.
-- The hotkey pressed in the viewer goes to the palette, like `Esc`, with the
+- `Cmd+W` closes the file and returns to the palette, like closing a tab.
+  With unsaved edits the first press reminds to save, a second one discards
+  them.
+- `Esc` hides Docent and keeps the file open, like clicking elsewhere.
+- Hidden from the viewer by `Esc` or by clicking elsewhere, Docent reopens in
+  the viewer at the same file and place, keeping unsaved edits.
+- The hotkey pressed in the viewer goes to the palette, like `Cmd+W`, with the
   query selected; pressed again there, it hides Docent. With unsaved edits it
   only reminds to save or discard them.
 - `Cmd+Enter` (or the button in the viewer header) moves the open file to a
@@ -670,8 +671,8 @@ Decisions on open questions, with date and a short rationale.
   reopening the palette with a "back to file" row, which loses the code on
   every click elsewhere.
 - **2026-11-03 — `Cmd+W` in the viewer closes the file.** It reads as closing
-  a tab, not hiding the app, so it returns to search like `Esc`; in the
-  palette it still hides Docent.
+  a tab, not hiding the app, so it returns to search; in the palette it
+  still hides Docent.
 - **2026-11-03 — Follow-ups in their own field.** Answers often need one more
   question. Where the question is typed decides what it is: the search bar
   starts over, the field below the answer continues, so there is no hidden
@@ -774,3 +775,8 @@ Decisions on open questions, with date and a short rationale.
   window of the same app first, and the palette opened on the old screen.
   The pointer is always where the user is looking after a click and needs
   no guessing. The focused-window screen stays available as a setting.
+- **2026-11-12 — `Esc` in the viewer hides Docent, keeping the file.**
+  Docent is used alongside other work: a file is read, then the user goes
+  back to their editor and returns to the same file. `Esc` is the quickest
+  way out and should not lose the place; `Cmd+W` and the hotkey still lead
+  back to search. Supersedes `Esc` closing the file (2026-11-03).
