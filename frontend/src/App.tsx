@@ -406,9 +406,9 @@ export function App() {
     focusInput();
   };
 
-  // The hotkey never discards edits, unlike a second Esc.
+  // The hotkey never discards edits, unlike closing the file twice.
   toSearch.current = () => {
-    if (dirty) return setNotice(`Unsaved changes: ${label(sc.save)} to save, Esc twice to discard`);
+    if (dirty) return setNotice(`Unsaved changes: ${label(sc.save)} to save, ${label(sc.close)} twice to discard`);
     backToPalette();
   };
 
@@ -846,7 +846,7 @@ export function App() {
               <div className="side">
                 {showContext && (
                   <aside className="card context">
-                    <button className="context-query" onClick={backToPalette} title="Back to search (Esc)">
+                    <button className="context-query" onClick={backToPalette} title={`Back to search (${label(sc.close)})`}>
                       <ArrowLeft size={14} />
                       <span>{list ? list.title : query || "Search"}</span>
                       {!list && <span className="context-tab">{tabs.find((t) => t.tab === tab)?.label}</span>}
@@ -926,7 +926,8 @@ export function App() {
                   onSave={save}
                   onDefinition={goToDefinition}
                   onUsages={findUsages}
-                  onEscape={backToPalette}
+                  // Esc hides Docent and keeps the file (DESIGN.md, Viewer).
+                  onEscape={api.hide}
                 />
               </main>
               {footer}
