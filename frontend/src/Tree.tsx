@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, File, Folder } from "lucide-react";
 import * as api from "./api";
 import type { Entry } from "./api";
@@ -24,6 +24,16 @@ export interface TreeProps {
 type Row = Place & { name: string; dir: boolean; depth: number };
 
 const key = (p: Place) => `${p.root}\0${p.path}`;
+
+// Row geometry, matching .tree-row and .tree-body in style.css.
+const rowHeight = 24;
+const bodyPadding = 4;
+// overscan rows are rendered beyond the view on each side.
+const overscan = 10;
+// sideMargin is kept around the selected row's chevron and name when
+// scrolling sideways.
+const sideMargin = 12;
+const indent = (depth: number) => 8 + depth * 14;
 
 // Tree shows the indexed files of code roots, loading folders as they open.
 export function Tree(props: TreeProps) {
@@ -76,22 +86,64 @@ export function Tree(props: TreeProps) {
     if (props.focus) host.current?.focus();
   }, [props.focus]);
 
-  const rows: Row[] = [];
-  const walk = (root: string, dir: string, depth: number) => {
-    for (const e of dirs.get(key({ root, path: dir })) ?? []) {
-      const path = dir ? `${dir}/${e.name}` : e.name;
-      rows.push({ root, path, name: e.name, dir: e.dir, depth });
-      if (e.dir && expanded.has(key({ root, path }))) walk(root, path, depth + 1);
+  const rows = useMemo(() => {
+    const rows: Row[] = [];
+    const walk = (root: string, dir: string, depth: number) => {
+      for (const e of dirs.get(key({ root, path: dir })) ?? []) {
+        const path = dir ? `${dir}/${e.name}` : e.name;
+        rows.push({ root, path, name: e.name, dir: e.dir, depth });
+        if (e.dir && expanded.has(key({ root, path }))) walk(root, path, depth + 1);
+      }
+    };
+    for (const r of props.roots) {
+      rows.push({ root: r.id, path: "", name: r.name, dir: true, depth: 0 });
+      if (expanded.has(key({ root: r.id, path: "" }))) walk(r.id, "", 1);
     }
-  };
-  for (const r of props.roots) {
-    rows.push({ root: r.id, path: "", name: r.name, dir: true, depth: 0 });
-    if (expanded.has(key({ root: r.id, path: "" }))) walk(r.id, "", 1);
-  }
+    return rows;
+  }, [dirs, expanded, props.roots]);
 
-  useEffect(() => {
-    host.current?.querySelector(".tree-row.selected")?.scrollIntoView({ block: "nearest" });
+  // Only the rows in view are rendered: a folder can hold thousands of files.
+  const body = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 0 });
+  const measure = () => {
+    const el = body.current;
+    if (el) setView({ top: el.scrollTop, height: el.clientHeight });
+  };
+  useLayoutEffect(() => {
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(body.current!);
+    return () => observer.disconnect();
+  }, []);
+  const first = Math.max(0, Math.floor((view.top - bodyPadding) / rowHeight) - overscan);
+  const last = Math.min(rows.length, Math.ceil((view.top + view.height - bodyPadding) / rowHeight) + overscan);
+
+  // The selected row scrolls into view both ways: deep rows sit far right.
+  // Sideways it needs the rendered row, which may only appear once the
+  // vertical scroll has re-rendered the rows in view.
+  const sideways = useRef(false);
+  useLayoutEffect(() => {
+    const el = body.current;
+    const i = rows.findIndex((r) => key(r) === selected);
+    if (!el || i < 0) return;
+    const top = bodyPadding + i * rowHeight;
+    if (top < el.scrollTop) el.scrollTop = top - bodyPadding;
+    else if (top + rowHeight > el.scrollTop + el.clientHeight) el.scrollTop = top + rowHeight + bodyPadding - el.clientHeight;
+    sideways.current = true;
   }, [selected, rows.length]);
+  useLayoutEffect(() => {
+    const el = body.current;
+    const row = sideways.current ? el?.querySelector<HTMLElement>(".tree-row.selected") : null;
+    if (!el || !row) return;
+    sideways.current = false;
+    // From the row's chevron to the end of its name, in scroll coordinates.
+    const origin = el.getBoundingClientRect().left - el.scrollLeft;
+    const start = row.firstElementChild!.getBoundingClientRect().left - origin - sideMargin;
+    const end = row.querySelector(".tree-name")!.getBoundingClientRect().right - origin + sideMargin;
+    // The whole name if it fits, else as much of it as fits from its start.
+    if (start < el.scrollLeft) el.scrollLeft = Math.max(0, start);
+    else if (end > el.scrollLeft + el.clientWidth) el.scrollLeft = Math.max(0, Math.min(start, end - el.clientWidth));
+  });
 
   const toggle = (p: Place, open: boolean) => {
     if (open) load(p);
@@ -194,12 +246,13 @@ export function Tree(props: TreeProps) {
   return (
     <div className="tree" ref={host} tabIndex={0} onKeyDown={onKeyDown} onBlur={() => setQuery("")}>
       {query && <div className={found ? "tree-search" : "tree-search none"}>{query}</div>}
-      <div className="tree-body">
-        {rows.map((row) => (
+      <div className="tree-body" ref={body} onScroll={measure}>
+        <div className="tree-rows" style={{ height: rows.length * rowHeight, paddingTop: first * rowHeight }}>
+        {rows.slice(first, last).map((row) => (
           <div
             key={key(row)}
             className={`tree-row${key(row) === selected ? " selected" : key(row) === open ? " open" : ""}${row.depth === 0 ? " tree-root" : ""}`}
-            style={{ paddingLeft: 8 + row.depth * 14 }}
+            style={{ paddingLeft: indent(row.depth) }}
             onMouseDown={(e) => (e.preventDefault(), host.current?.focus())}
             onClick={() => activate(row)}
           >
@@ -212,6 +265,7 @@ export function Tree(props: TreeProps) {
             <span className="tree-name">{matches(row) ? <Match name={row.name} query={query} /> : row.name}</span>
           </div>
         ))}
+        </div>
       </div>
     </div>
   );
