@@ -60,6 +60,11 @@ export function Code(props: CodeProps) {
 
   useEffect(() => {
     view.current = new EditorView({ parent: host.current! });
+    // A new view has no state: the file is set up anew, not replaced in
+    // place. React mounts twice in development (StrictMode), and replacing
+    // the text of the second, bare view left it without highlighting, line
+    // numbers and key bindings.
+    shown.current = null;
     if (props.text) props.text.current = () => view.current!.state.doc.toString();
     return () => view.current?.destroy();
   }, []);
