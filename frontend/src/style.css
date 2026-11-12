@@ -279,8 +279,11 @@ mark {
   display: flex;
 }
 
+/* Without min-width, long lines coming into view widen the editor past the
+   card, taking the find bar's buttons with it; they scroll instead. */
 .code .cm-editor {
   flex: 1;
+  min-width: 0;
   height: 100%;
   font-size: 12.5px;
 }
