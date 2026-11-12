@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/sourcegraph/zoekt"
@@ -293,6 +294,7 @@ func reindexRoot(ctx context.Context, old *root, listed func([]source.File), pro
 		return r, nil
 	}
 
+	removeTempShards(r.key)
 	builder, err := zindex.NewBuilder(zindex.Options{
 		IndexDir:              shardDir(r.key),
 		ShardPrefixOverride:   r.key,
@@ -333,6 +335,11 @@ func reindexRoot(ctx context.Context, old *root, listed func([]source.File), pro
 			for i := range jobs {
 				f := files[i]
 				content, err := os.ReadFile(filepath.Join(r.cfg.Path, filepath.FromSlash(f.Path)))
+				if err != nil && outOfResources(err) {
+					// Skipping would build an index that silently misses
+					// files and still looks complete; keep the old one.
+					return fmt.Errorf("%s: %w", f.Path, err)
+				}
 				if err != nil || source.IsBinary(content) {
 					continue
 				}
@@ -418,6 +425,21 @@ func shardDir(key string) string { return filepath.Join(cacheDir, "shards", key)
 
 func snapshotPath(key string) string {
 	return filepath.Join(cacheDir, "roots", key+".gob")
+}
+
+// outOfResources reports whether a file could not be read because the process
+// ran out of file descriptors or memory, rather than because of the file.
+func outOfResources(err error) bool {
+	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOMEM)
+}
+
+// removeTempShards deletes the temporary files of shard builds that never
+// finished: a failed build leaves them behind.
+func removeTempShards(key string) {
+	m, _ := filepath.Glob(filepath.Join(shardDir(key), "*.tmp"))
+	for _, path := range m {
+		os.Remove(path)
+	}
 }
 
 func hasShards(key string) bool {

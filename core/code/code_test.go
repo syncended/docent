@@ -2,9 +2,12 @@ package code
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 	"time"
 
@@ -297,6 +300,43 @@ func TestReindexKeepsUnchanged(t *testing.T) {
 	after := Roots()[0]
 	if after.Files != before.Files || after.Symbols != before.Symbols {
 		t.Errorf("reindex changed counts: %+v → %+v", before, after)
+	}
+}
+
+func TestReindexRemovesUnfinishedShards(t *testing.T) {
+	setup(t)
+	r := roots[0]
+	leftover := filepath.Join(shardDir(r.key), r.key+"_v16.00000.zoekt.123.tmp")
+	if err := os.WriteFile(leftover, []byte("partial"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.cfg.Path, "added.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Reindex(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(leftover); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("unfinished shard survived a rebuild: %v", err)
+	}
+	if !hasShards(r.key) {
+		t.Error("rebuild left no shards")
+	}
+}
+
+func TestOutOfResources(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want bool
+	}{
+		{&fs.PathError{Op: "open", Path: "a", Err: syscall.EMFILE}, true},
+		{&fs.PathError{Op: "open", Path: "a", Err: syscall.ENFILE}, true},
+		{&fs.PathError{Op: "open", Path: "a", Err: syscall.EACCES}, false},
+		{&fs.PathError{Op: "open", Path: "a", Err: fs.ErrNotExist}, false},
+	} {
+		if got := outOfResources(c.err); got != c.want {
+			t.Errorf("outOfResources(%v) = %v, want %v", c.err, got, c.want)
+		}
 	}
 }
 
